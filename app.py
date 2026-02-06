@@ -691,7 +691,7 @@ def main():
     # ── Timeframe Selector ──
     tf_options = ["24h", "7d", "30d", "180d", "365d", "all"]
     if "timeframe" not in st.session_state:
-        st.session_state["timeframe"] = "180d"
+        st.session_state["timeframe"] = "7d"
     tf = st.sidebar.selectbox(
         "時間軸",
         tf_options,
