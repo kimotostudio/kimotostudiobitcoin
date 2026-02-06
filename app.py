@@ -53,8 +53,10 @@ def load_data():
                     conn,
                     params={"limit": QUERY_LIMIT},
                 )
+            st.session_state.pop("last_error", None)
             return df.sort_values("timestamp")
         except Exception:
+            st.session_state["last_error"] = "DBReadError"
             return pd.DataFrame()
 
     if not os.path.exists(DB_PATH):
@@ -82,8 +84,10 @@ def load_data():
             conn,
             params=(QUERY_LIMIT,)
         )
+        st.session_state.pop("last_error", None)
         return df.sort_values("timestamp")
     except Exception:
+        st.session_state["last_error"] = "DBReadError"
         return pd.DataFrame()
     finally:
         conn.close()
@@ -102,6 +106,8 @@ bb_th = st.sidebar.slider("BB Width Threshold", 0.0, 10.0, 2.0)
 
 st.sidebar.markdown("---")
 st.sidebar.caption("Not financial advice. Trade at your own risk.")
+if st.session_state.get("last_error"):
+    st.sidebar.caption("DB read error (safe): DBReadError")
 
 # =========================
 # HEADER
