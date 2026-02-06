@@ -428,13 +428,21 @@ def price_chart_with_prediction(
                 hoverinfo="skip",
             ))
 
-        fig.add_vline(
-            x=df.index[-1],
-            line_dash="dash",
-            line_color="rgba(255,255,255,0.3)",
-            annotation_text="予測開始",
-            annotation_position="top"
-        )
+        if len(df) > 0:
+            x_val = df.index[-1]
+            if hasattr(x_val, "to_pydatetime"):
+                x_val = x_val.to_pydatetime()
+            elif hasattr(x_val, "isoformat"):
+                x_val = x_val.isoformat()
+            else:
+                x_val = str(x_val)
+            fig.add_vline(
+                x=x_val,
+                line_dash="dash",
+                line_color="rgba(255,255,255,0.3)",
+                annotation_text="予測開始",
+                annotation_position="top"
+            )
 
     fig.update_layout(
         title=chart_title,
