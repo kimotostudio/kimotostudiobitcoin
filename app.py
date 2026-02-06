@@ -138,21 +138,28 @@ def get_engine():
     return engine
 
 
-def load_price_history(hours: int = 24) -> pd.DataFrame:
+def load_price_history(hours: int | None = 24) -> pd.DataFrame:
     """Load price_history from DB."""
     engine = get_engine()
     if engine is None:
         return pd.DataFrame()
 
-    cutoff = int(time.time()) - (hours * 3600)
     try:
         with engine.connect() as conn:
-            df = pd.read_sql_query(
-                text("SELECT timestamp, price, volume FROM price_history "
-                     "WHERE timestamp >= :cutoff ORDER BY timestamp"),
-                conn,
-                params={"cutoff": cutoff},
-            )
+            if hours:
+                cutoff = int(time.time()) - (hours * 3600)
+                df = pd.read_sql_query(
+                    text("SELECT timestamp, price, volume FROM price_history "
+                         "WHERE timestamp >= :cutoff ORDER BY timestamp"),
+                    conn,
+                    params={"cutoff": cutoff},
+                )
+            else:
+                df = pd.read_sql_query(
+                    text("SELECT timestamp, price, volume FROM price_history "
+                         "ORDER BY timestamp"),
+                    conn,
+                )
         if len(df) > 0:
             df["datetime"] = pd.to_datetime(df["timestamp"], unit="s")
             df.set_index("datetime", inplace=True)
@@ -162,21 +169,28 @@ def load_price_history(hours: int = 24) -> pd.DataFrame:
         return pd.DataFrame()
 
 
-def load_snapshot_history(hours: int = 24) -> pd.DataFrame:
+def load_snapshot_history(hours: int | None = 24) -> pd.DataFrame:
     """Load btc_history (indicator snapshots) from DB."""
     engine = get_engine()
     if engine is None:
         return pd.DataFrame()
 
-    cutoff = int(time.time()) - (hours * 3600)
     try:
         with engine.connect() as conn:
-            df = pd.read_sql_query(
-                text("SELECT * FROM btc_history "
-                     "WHERE timestamp >= :cutoff ORDER BY timestamp"),
-                conn,
-                params={"cutoff": cutoff},
-            )
+            if hours:
+                cutoff = int(time.time()) - (hours * 3600)
+                df = pd.read_sql_query(
+                    text("SELECT * FROM btc_history "
+                         "WHERE timestamp >= :cutoff ORDER BY timestamp"),
+                    conn,
+                    params={"cutoff": cutoff},
+                )
+            else:
+                df = pd.read_sql_query(
+                    text("SELECT * FROM btc_history "
+                         "ORDER BY timestamp"),
+                    conn,
+                )
         if len(df) > 0:
             df["datetime"] = pd.to_datetime(df["timestamp"], unit="s")
             df.set_index("datetime", inplace=True)
@@ -652,27 +666,40 @@ def main():
     st.markdown("---")
 
     # ── Timeframe Selector ──
+    tf_options = ["24h", "7d", "30d", "180d", "365d", "all"]
     if "timeframe" not in st.session_state:
-        st.session_state["timeframe"] = "24h"
-    tf = st.radio(
-        "timeframe",
-        ["24h", "7d", "30d"],
-        horizontal=True,
-        label_visibility="collapsed",
-        index=["24h", "7d", "30d"].index(st.session_state["timeframe"]),
-        key="timeframe",
+        st.session_state["timeframe"] = "180d"
+    tf = st.sidebar.selectbox(
+        "時間軸",
+        tf_options,
+        index=tf_options.index(st.session_state["timeframe"]),
     )
+    st.session_state["timeframe"] = tf
 
-    tf_hours_map = {"24h": 24, "7d": 168, "30d": 720}
-    tf_pred_map = {"24h": 6, "7d": 24, "30d": 72}
+    tf_hours_map = {
+        "24h": 24,
+        "7d": 168,
+        "30d": 720,
+        "180d": 4320,
+        "365d": 8760,
+        "all": None,
+    }
+    tf_pred_map = {"24h": 6, "7d": 24, "30d": 72, "180d": 168, "365d": 168, "all": 168}
     tf_title_map = {
         "24h": "BTC/JPY 24時間チャート + 6時間予測",
         "7d": "BTC/JPY 7日チャート + 24時間予測",
         "30d": "BTC/JPY 30日チャート + 3日予測",
+        "180d": "BTC/JPY 180日チャート + 7日予測",
+        "365d": "BTC/JPY 365日チャート + 7日予測",
+        "all": "BTC/JPY 全期間チャート + 7日予測",
     }
 
     df_price_tf = load_price_history(tf_hours_map[tf])
     df_snap_tf = load_snapshot_history(tf_hours_map[tf])
+    if tf_hours_map[tf]:
+        cutoff_dt = pd.Timestamp.utcnow() - pd.Timedelta(hours=tf_hours_map[tf])
+        df_price_tf = df_price_tf[df_price_tf.index >= cutoff_dt]
+        df_snap_tf = df_snap_tf[df_snap_tf.index >= cutoff_dt]
     prediction_hours = tf_pred_map[tf]
     prediction_df = predict_price_trend(df_price_tf, prediction_hours)
 
