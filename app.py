@@ -7,13 +7,15 @@ KIMOTO STUDIO
 
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+from scipy import stats
 from sqlalchemy import create_engine, text
+from sklearn.linear_model import LinearRegression
 
 # Import core indicator functions from btc_monitor (same repo)
 try:
@@ -271,8 +273,94 @@ def analyze(df: pd.DataFrame) -> dict:
 # Charts
 # ============================================================================
 
-def price_chart(df: pd.DataFrame):
-    """Plotly price chart."""
+def predict_price_trend(df: pd.DataFrame, hours_ahead: int = 24) -> pd.DataFrame:
+    """Predict future price trend using linear regression."""
+    if len(df) < 50:
+        return pd.DataFrame()
+
+    try:
+        df_copy = df.copy()
+        df_copy = df_copy.sort_index()
+        df_copy["hours"] = (df_copy.index - df_copy.index[0]).total_seconds() / 3600
+
+        recent_df = df_copy[df_copy.index >= df_copy.index.max() - pd.Timedelta(hours=168)]
+        if len(recent_df) == 0:
+            recent_df = df_copy
+
+        X = recent_df["hours"].values.reshape(-1, 1)
+        y = recent_df["price"].values
+
+        model = LinearRegression()
+        model.fit(X, y)
+
+        last_hour = recent_df["hours"].iloc[-1]
+        future_hours = np.linspace(last_hour, last_hour + hours_ahead, hours_ahead)
+        future_X = future_hours.reshape(-1, 1)
+        future_prices = model.predict(future_X)
+
+        last_timestamp = df.index[-1]
+        future_timestamps = pd.date_range(
+            start=last_timestamp + timedelta(hours=1),
+            periods=hours_ahead,
+            freq="H"
+        )
+
+        future_df = pd.DataFrame({
+            "price": future_prices,
+            "timestamp": future_timestamps,
+        })
+        future_df.set_index("timestamp", inplace=True)
+        return future_df
+
+    except Exception:
+        st.warning("予測計算エラー")
+        return pd.DataFrame()
+
+
+def predict_price_moving_average(
+    df: pd.DataFrame, hours_ahead: int = 24, window: int = 24
+) -> pd.DataFrame:
+    """Predict future price using moving average extension."""
+    if len(df) < window:
+        return pd.DataFrame()
+
+    try:
+        ma = df["price"].rolling(window=window).mean()
+        recent_ma = ma.tail(window).dropna()
+        if len(recent_ma) < 2:
+            return pd.DataFrame()
+
+        x = np.arange(len(recent_ma))
+        slope, intercept, _, _, _ = stats.linregress(x, recent_ma.values)
+
+        last_value = recent_ma.iloc[-1]
+        future_values = [last_value + slope * i for i in range(1, hours_ahead + 1)]
+
+        last_timestamp = df.index[-1]
+        future_timestamps = pd.date_range(
+            start=last_timestamp + timedelta(hours=1),
+            periods=hours_ahead,
+            freq="H"
+        )
+
+        future_df = pd.DataFrame({
+            "price": future_values,
+            "timestamp": future_timestamps,
+        })
+        future_df.set_index("timestamp", inplace=True)
+        return future_df
+
+    except Exception:
+        st.warning("移動平均予測エラー")
+        return pd.DataFrame()
+
+def price_chart_with_prediction(
+    df: pd.DataFrame,
+    prediction_df: pd.DataFrame,
+    chart_title: str,
+    timeframe: str
+):
+    """Plotly price chart with prediction curve."""
     if len(df) == 0:
         st.info("価格データを収集中...")
         return
@@ -284,18 +372,74 @@ def price_chart(df: pd.DataFrame):
         line=dict(color="#58a6ff", width=2),
         fill="tozeroy",
         fillcolor="rgba(88,166,255,0.08)",
+        hovertemplate="%{y:,.0f} JPY<br>%{x|%Y-%m-%d %H:%M}<extra></extra>",
     ))
+
+    if len(prediction_df) > 0:
+        last_point = df.iloc[-1]
+        prediction_with_connection = pd.concat([
+            pd.DataFrame({"price": [last_point["price"]]}, index=[df.index[-1]]),
+            prediction_df,
+        ])
+        fig.add_trace(go.Scatter(
+            x=prediction_with_connection.index,
+            y=prediction_with_connection["price"],
+            mode="lines",
+            name="予測曲線",
+            line=dict(color="#fbbf24", width=2, dash="dot"),
+            hovertemplate="予測: %{y:,.0f} JPY<br>%{x|%Y-%m-%d %H:%M}<extra></extra>",
+        ))
+
+        std_dev = df["price"].tail(48).std()
+        if pd.notna(std_dev) and std_dev > 0:
+            upper = prediction_df["price"] + std_dev
+            lower = prediction_df["price"] - std_dev
+
+            fig.add_trace(go.Scatter(
+                x=prediction_df.index,
+                y=upper,
+                mode="lines",
+                line=dict(width=0),
+                showlegend=False,
+                hoverinfo="skip",
+            ))
+            fig.add_trace(go.Scatter(
+                x=prediction_df.index,
+                y=lower,
+                mode="lines",
+                fill="tonexty",
+                fillcolor="rgba(251,191,36,0.1)",
+                line=dict(width=0),
+                showlegend=False,
+                hoverinfo="skip",
+            ))
+
+        fig.add_vline(
+            x=df.index[-1],
+            line_dash="dash",
+            line_color="rgba(255,255,255,0.3)",
+            annotation_text="予測開始",
+            annotation_position="top"
+        )
+
     fig.update_layout(
+        title=chart_title,
         xaxis_title="", yaxis_title="JPY",
         hovermode="x unified",
         template="plotly_dark",
         paper_bgcolor="#0d1117",
         plot_bgcolor="#161b22",
         font=dict(color="#c9d1d9"),
-        height=370,
+        height=420,
         margin=dict(l=0, r=0, t=10, b=0),
         yaxis=dict(tickformat=","),
     )
+
+    if timeframe == "24h":
+        fig.update_xaxes(tickformat="%H:%M")
+    else:
+        fig.update_xaxes(tickformat="%m/%d")
+
     st.plotly_chart(fig, use_container_width=True)
 
 
@@ -507,13 +651,58 @@ def main():
 
     st.markdown("---")
 
+    # ── Timeframe Selector ──
+    if "timeframe" not in st.session_state:
+        st.session_state["timeframe"] = "24h"
+    tf = st.radio(
+        "timeframe",
+        ["24h", "7d", "30d"],
+        horizontal=True,
+        label_visibility="collapsed",
+        index=["24h", "7d", "30d"].index(st.session_state["timeframe"]),
+        key="timeframe",
+    )
+
+    tf_hours_map = {"24h": 24, "7d": 168, "30d": 720}
+    tf_pred_map = {"24h": 6, "7d": 24, "30d": 72}
+    tf_title_map = {
+        "24h": "BTC/JPY 24時間チャート + 6時間予測",
+        "7d": "BTC/JPY 7日チャート + 24時間予測",
+        "30d": "BTC/JPY 30日チャート + 3日予測",
+    }
+
+    df_price_tf = load_price_history(tf_hours_map[tf])
+    df_snap_tf = load_snapshot_history(tf_hours_map[tf])
+    prediction_hours = tf_pred_map[tf]
+    prediction_df = predict_price_trend(df_price_tf, prediction_hours)
+
     # ── Price Chart ──
-    st.subheader("BTC/JPY 24時間チャート")
-    price_chart(df_price)
+    st.subheader(tf_title_map[tf])
+    price_chart_with_prediction(df_price_tf, prediction_df, tf_title_map[tf], tf)
+
+    if len(prediction_df) > 0 and len(df_price_tf) > 0:
+        predicted_change = (
+            (prediction_df["price"].iloc[-1] - df_price_tf["price"].iloc[-1])
+            / df_price_tf["price"].iloc[-1] * 100
+        )
+
+        p1, p2, p3 = st.columns(3)
+        with p1:
+            st.metric("現在価格", f"¥{df_price_tf['price'].iloc[-1]:,.0f}")
+        with p2:
+            hours_text = f"{prediction_hours}時間後" if prediction_hours < 48 else f"{prediction_hours//24}日後"
+            st.metric(
+                f"予測価格 ({hours_text})",
+                f"¥{prediction_df['price'].iloc[-1]:,.0f}",
+                delta=f"{predicted_change:+.2f}%"
+            )
+        with p3:
+            direction = "上昇" if predicted_change > 0 else "下落"
+            st.metric("予測トレンド", direction, delta=f"{abs(predicted_change):.2f}%")
 
     # ── Score Timeline ──
     st.subheader("スコア推移")
-    score_chart(df_snap)
+    score_chart(df_snap_tf)
 
     st.markdown("---")
 
@@ -550,7 +739,7 @@ def main():
             st.metric("出来高比", f"{vr:.2f}x", delta=vol_tag)
 
         # Sub-charts
-        indicator_charts(df_snap)
+        indicator_charts(df_snap_tf)
 
     with right:
         st.subheader("シグナル一覧")
