@@ -17,6 +17,11 @@ from scipy import stats
 from sqlalchemy import create_engine, text
 from sklearn.linear_model import LinearRegression
 
+# Bounded history reads + default chart span
+QUERY_LIMIT = 50000
+DEFAULT_VIEW_DAYS = 90
+VIEW_RANGE_OPTIONS = [7, 30, 90, 180, 365]
+
 # Import core indicator functions from btc_monitor (same repo)
 try:
     from btc_monitor import (
@@ -150,17 +155,20 @@ def load_price_history(hours: int | None = 24) -> pd.DataFrame:
                 cutoff = int(time.time()) - (hours * 3600)
                 df = pd.read_sql_query(
                     text("SELECT timestamp, price, volume FROM price_history "
-                         "WHERE timestamp >= :cutoff ORDER BY timestamp"),
+                         "WHERE timestamp >= :cutoff "
+                         "ORDER BY timestamp DESC LIMIT :limit"),
                     conn,
-                    params={"cutoff": cutoff},
+                    params={"cutoff": cutoff, "limit": QUERY_LIMIT},
                 )
             else:
                 df = pd.read_sql_query(
                     text("SELECT timestamp, price, volume FROM price_history "
-                         "ORDER BY timestamp"),
+                         "ORDER BY timestamp DESC LIMIT :limit"),
                     conn,
+                    params={"limit": QUERY_LIMIT},
                 )
         if len(df) > 0:
+            df.sort_values("timestamp", inplace=True)
             df["datetime"] = pd.to_datetime(df["timestamp"], unit="s")
             df.set_index("datetime", inplace=True)
         return df
@@ -181,17 +189,20 @@ def load_snapshot_history(hours: int | None = 24) -> pd.DataFrame:
                 cutoff = int(time.time()) - (hours * 3600)
                 df = pd.read_sql_query(
                     text("SELECT * FROM btc_history "
-                         "WHERE timestamp >= :cutoff ORDER BY timestamp"),
+                         "WHERE timestamp >= :cutoff "
+                         "ORDER BY timestamp DESC LIMIT :limit"),
                     conn,
-                    params={"cutoff": cutoff},
+                    params={"cutoff": cutoff, "limit": QUERY_LIMIT},
                 )
             else:
                 df = pd.read_sql_query(
                     text("SELECT * FROM btc_history "
-                         "ORDER BY timestamp"),
+                         "ORDER BY timestamp DESC LIMIT :limit"),
                     conn,
+                    params={"limit": QUERY_LIMIT},
                 )
         if len(df) > 0:
+            df.sort_values("timestamp", inplace=True)
             df["datetime"] = pd.to_datetime(df["timestamp"], unit="s")
             df.set_index("datetime", inplace=True)
         return df
@@ -688,77 +699,65 @@ def main():
 
     st.markdown("---")
 
-    # ── Timeframe Selector ──
-    tf_options = ["24h", "7d", "14d", "30d", "180d", "365d", "all"]
-    if "timeframe" not in st.session_state:
-        st.session_state["timeframe"] = "14d"
-    tf = st.sidebar.selectbox(
-        "時間軸",
-        tf_options,
-        index=tf_options.index(st.session_state["timeframe"]),
+    # ?? View Range Selector ???????????????????????????????????????????????????
+    if "view_days" not in st.session_state:
+        st.session_state["view_days"] = DEFAULT_VIEW_DAYS
+    view_days = st.sidebar.selectbox(
+        "????(?)",
+        VIEW_RANGE_OPTIONS,
+        index=VIEW_RANGE_OPTIONS.index(st.session_state["view_days"]),
     )
-    st.session_state["timeframe"] = tf
+    st.session_state["view_days"] = view_days
 
-    tf_hours_map = {
-        "24h": 24,
-        "7d": 168,
-        "14d": 336,
-        "30d": 720,
-        "180d": 4320,
-        "365d": 8760,
-        "all": None,
-    }
-    tf_pred_map = {"24h": 6, "7d": 24, "14d": 72, "30d": 72, "180d": 168, "365d": 168, "all": 168}
-    tf_title_map = {
-        "24h": "BTC/JPY 24時間チャート + 6時間予測",
-        "7d": "BTC/JPY 7日チャート + 24時間予測",
-        "14d": "BTC/JPY 14日チャート + 3日予測",
-        "30d": "BTC/JPY 30日チャート + 3日予測",
-        "180d": "BTC/JPY 180日チャート + 7日予測",
-        "365d": "BTC/JPY 365日チャート + 7日予測",
-        "all": "BTC/JPY 全期間チャート + 7日予測",
-    }
+    view_pred_map = {7: 24, 30: 72, 90: 72, 180: 168, 365: 168}
+    prediction_hours = view_pred_map.get(view_days, 72)
+    pred_label = f"{prediction_hours}??" if prediction_hours < 48 else f"{prediction_hours // 24}?"
+    chart_title = f"BTC/JPY {view_days}????? + {pred_label}??"
 
-    df_price_tf = load_price_history(tf_hours_map[tf])
-    df_snap_tf = load_snapshot_history(tf_hours_map[tf])
-    if tf_hours_map[tf]:
-        cutoff_dt = pd.Timestamp.utcnow().tz_localize(None) - pd.Timedelta(hours=tf_hours_map[tf])
-        if getattr(df_price_tf.index, "tz", None) is not None:
-            df_price_tf.index = df_price_tf.index.tz_convert("UTC").tz_localize(None)
-        if getattr(df_snap_tf.index, "tz", None) is not None:
-            df_snap_tf.index = df_snap_tf.index.tz_convert("UTC").tz_localize(None)
-        df_price_tf = df_price_tf[df_price_tf.index >= cutoff_dt]
-        df_snap_tf = df_snap_tf[df_snap_tf.index >= cutoff_dt]
-    prediction_hours = tf_pred_map[tf]
-    prediction_df = predict_price_trend(df_price_tf, prediction_hours)
+    df_price_full = load_price_history(None)
+    df_snap_full = load_snapshot_history(None)
 
-    # ── Price Chart ──
-    st.subheader(tf_title_map[tf])
-    price_chart_with_prediction(df_price_tf, prediction_df, tf_title_map[tf], tf)
+    df_price_view = df_price_full
+    df_snap_view = df_snap_full
+    cutoff_dt = pd.Timestamp.utcnow().tz_localize(None) - pd.Timedelta(days=view_days)
+    if len(df_price_view) > 0 and getattr(df_price_view.index, "tz", None) is not None:
+        df_price_view.index = df_price_view.index.tz_convert("UTC").tz_localize(None)
+    if len(df_snap_view) > 0 and getattr(df_snap_view.index, "tz", None) is not None:
+        df_snap_view.index = df_snap_view.index.tz_convert("UTC").tz_localize(None)
+    if len(df_price_view) > 0:
+        df_price_view = df_price_view[df_price_view.index >= cutoff_dt]
+    if len(df_snap_view) > 0:
+        df_snap_view = df_snap_view[df_snap_view.index >= cutoff_dt]
 
-    if len(prediction_df) > 0 and len(df_price_tf) > 0:
+    prediction_df = predict_price_trend(df_price_view, prediction_hours)
+
+    # ?? Price Chart ???????????????????????????????????????????????????????????
+    st.subheader(chart_title)
+    price_chart_with_prediction(df_price_view, prediction_df, chart_title, f"{view_days}d")
+
+    if len(prediction_df) > 0 and len(df_price_view) > 0:
         predicted_change = (
-            (prediction_df["price"].iloc[-1] - df_price_tf["price"].iloc[-1])
-            / df_price_tf["price"].iloc[-1] * 100
+            (prediction_df["price"].iloc[-1] - df_price_view["price"].iloc[-1])
+            / df_price_view["price"].iloc[-1] * 100
         )
 
         p1, p2, p3 = st.columns(3)
         with p1:
-            st.metric("現在価格", f"¥{df_price_tf['price'].iloc[-1]:,.0f}")
+            st.metric("????", f"?{df_price_view['price'].iloc[-1]:,.0f}")
         with p2:
-            hours_text = f"{prediction_hours}時間後" if prediction_hours < 48 else f"{prediction_hours//24}日後"
+            hours_text = f"{prediction_hours}???" if prediction_hours < 48 else f"{prediction_hours//24}??"
             st.metric(
-                f"予測価格 ({hours_text})",
-                f"¥{prediction_df['price'].iloc[-1]:,.0f}",
+                f"???? ({hours_text})",
+                f"?{prediction_df['price'].iloc[-1]:,.0f}",
                 delta=f"{predicted_change:+.2f}%"
             )
         with p3:
-            direction = "上昇" if predicted_change > 0 else "下落"
-            st.metric("予測トレンド", direction, delta=f"{abs(predicted_change):.2f}%")
+            direction = "??" if predicted_change > 0 else "??"
+            st.metric("??????", direction, delta=f"{abs(predicted_change):.2f}%")
 
     # ── Score Timeline ──
     st.subheader("スコア推移")
-    score_chart(df_snap_tf)
+    score_chart(df_snap_view)
 
     st.markdown("---")
 
@@ -795,7 +794,7 @@ def main():
             st.metric("出来高比", f"{vr:.2f}x", delta=vol_tag)
 
         # Sub-charts
-        indicator_charts(df_snap_tf)
+        indicator_charts(df_snap_view)
 
     with right:
         st.subheader("シグナル一覧")
