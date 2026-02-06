@@ -126,6 +126,10 @@ def get_engine():
     if not url:
         return None
 
+    # Normalize: postgresql:// → postgresql+psycopg://
+    if url.startswith("postgresql://"):
+        url = url.replace("postgresql://", "postgresql+psycopg://", 1)
+
     engine = create_engine(url, pool_pre_ping=True)
     with engine.connect() as conn:
         conn.execute(text("SELECT 1"))
