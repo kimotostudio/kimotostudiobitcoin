@@ -697,7 +697,11 @@ def main():
     df_price_tf = load_price_history(tf_hours_map[tf])
     df_snap_tf = load_snapshot_history(tf_hours_map[tf])
     if tf_hours_map[tf]:
-        cutoff_dt = pd.Timestamp.utcnow() - pd.Timedelta(hours=tf_hours_map[tf])
+        cutoff_dt = pd.Timestamp.utcnow().tz_localize(None) - pd.Timedelta(hours=tf_hours_map[tf])
+        if getattr(df_price_tf.index, "tz", None) is not None:
+            df_price_tf.index = df_price_tf.index.tz_convert("UTC").tz_localize(None)
+        if getattr(df_snap_tf.index, "tz", None) is not None:
+            df_snap_tf.index = df_snap_tf.index.tz_convert("UTC").tz_localize(None)
         df_price_tf = df_price_tf[df_price_tf.index >= cutoff_dt]
         df_snap_tf = df_snap_tf[df_snap_tf.index >= cutoff_dt]
     prediction_hours = tf_pred_map[tf]
