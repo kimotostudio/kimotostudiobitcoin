@@ -162,13 +162,14 @@ RSI_OVERSOLD = 30
 
 ```
 BitFlyer API ─┐
-              ├─> fetch_btc_price() ─> SQLite ─> analyze_signals() ─> Discord
-Coincheck API ┘                        (履歴)     (6指標スコアリング)    (通知)
+              ├─> fetch_btc_price() ─> DB ─> analyze_signals() ─> Discord
+Coincheck API ┘                       (履歴)  (6指標スコアリング)    (通知)
 ```
 
 - **データソース:** BitFlyer（プライマリ）、Coincheck（フォールバック）
-- **履歴保存:** SQLite（`btc_history.db`）、1週間分を保持
-- **通知:** Discord Webhook、1時間のクールダウン付き
+- **履歴保存:** SQLite（ローカル）/ PostgreSQL（VPS・Streamlit Cloud）、1週間分を保持
+- **通知:** Discord Webhook、リトライ付き（最大3回・指数バックオフ）
+- **重複抑制:** クールダウン（1時間）+ 重複キーによるデデュプ（15分）
 
 ---
 
@@ -176,12 +177,13 @@ Coincheck API ┘                        (履歴)     (6指標スコアリング
 
 ```
 Bitcoin/
-├── btc_monitor.py         # メインスクリプト
+├── btc_monitor.py         # メインCLIモニター
+├── btc_gui.py             # デスクトップGUI（tkinter）
 ├── requirements.txt       # 依存パッケージ
 ├── setup.bat              # セットアップスクリプト
 ├── install_autostart.bat  # 自動起動インストーラ
 ├── .env.example           # 環境変数テンプレート
-├── btc_history.db         # 価格履歴DB（自動生成）
+├── btc_history.db         # 価格履歴DB（自動生成・ローカル時）
 └── README.md
 ```
 
@@ -215,3 +217,68 @@ Bitcoin/
 ---
 
 KIMOTO STUDIO
+
+---
+
+## VPS デプロイ
+
+### 構成
+
+| 項目 | 値 |
+|------|-----|
+| VPS | Ubuntu 22.04 |
+| リポジトリ | `/opt/kimotostudiobitcoin` |
+| Python | `.venv/bin/python` |
+| DB | Neon PostgreSQL（`postgresql+psycopg://`） |
+| サービス | `btc-monitor.service`（enabled / active） |
+
+### systemd サービス
+
+```ini
+[Unit]
+Description=Bitcoin Bottom Detector Monitor
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/kimotostudiobitcoin
+EnvironmentFile=/opt/kimotostudiobitcoin/.env
+ExecStart=/opt/kimotostudiobitcoin/.venv/bin/python -u /opt/kimotostudiobitcoin/btc_monitor.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+```
+
+### 運用コマンド
+
+```bash
+# ステータス確認
+sudo systemctl status btc-monitor.service --no-pager
+
+# ログ確認
+sudo journalctl -u btc-monitor.service -n 50 --no-pager
+
+# 再起動
+sudo systemctl restart btc-monitor.service
+
+# 停止
+sudo systemctl stop btc-monitor.service
+```
+
+### `.env` の形式
+
+```
+DATABASE_URL=postgresql+psycopg://USER:PASS@HOST:5432/DB?sslmode=require
+DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/XXXX/XXXX
+```
+
+### デプロイ時の注意
+
+- `network-online.target` ではなく `network.target` を使うこと（最小構成VPSでは online target が到達しない場合がある）
+- `python -u` でバッファなし出力にしないと journalctl にログが出ない
+- DATABASE_URL は `postgresql+psycopg://` プレフィックス必須（SQLAlchemy 2.x + psycopg3）
