@@ -1,6 +1,7 @@
 __pycache__/
 *.pyc
 *.db
+!btc_history.db
 *.log
 *.out
 *.err
