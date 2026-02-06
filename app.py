@@ -16,6 +16,7 @@ st.set_page_config(
 # =========================
 DB_PATH = "btc_history.db"
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+QUERY_LIMIT = 1500
 
 _ENGINE = None
 
@@ -47,8 +48,12 @@ def load_data():
                     )
                     """
                 ))
-                df = pd.read_sql(text("SELECT * FROM btc_history ORDER BY timestamp"), conn)
-            return df
+                df = pd.read_sql(
+                    text("SELECT * FROM btc_history ORDER BY timestamp DESC LIMIT :limit"),
+                    conn,
+                    params={"limit": QUERY_LIMIT},
+                )
+            return df.sort_values("timestamp")
         except Exception:
             return pd.DataFrame()
 
@@ -72,8 +77,12 @@ def load_data():
             )
             """
         )
-        df = pd.read_sql("SELECT * FROM btc_history ORDER BY timestamp", conn)
-        return df
+        df = pd.read_sql(
+            "SELECT * FROM btc_history ORDER BY timestamp DESC LIMIT ?",
+            conn,
+            params=(QUERY_LIMIT,)
+        )
+        return df.sort_values("timestamp")
     except Exception:
         return pd.DataFrame()
     finally:
