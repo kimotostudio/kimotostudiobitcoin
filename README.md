@@ -57,6 +57,21 @@ $env:DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/YOUR_ID/YOUR_TOKEN"
 `.env.example` をコピーして `.env` にリネームしてもよい。
 未設定でもコンソール出力で動作する。
 
+### Streamlit Cloud / 外部DB（任意）
+
+Streamlit Cloudで動かす場合は、ローカルの `btc_history.db` を参照できないため、
+外部DB（Postgres）を使うのが確実です。
+
+1. Postgres を用意
+2. `DATABASE_URL` を設定
+
+`.env.example`:
+```
+DATABASE_URL=postgresql+psycopg://user:pass@host:5432/dbname
+```
+
+Streamlit Cloud の Secrets に同じ `DATABASE_URL` を設定してください。
+
 ### 実行
 
 ```bash

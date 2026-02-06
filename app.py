@@ -3,6 +3,7 @@ import sqlite3
 
 import pandas as pd
 import streamlit as st
+from sqlalchemy import create_engine, text
 
 st.set_page_config(
     page_title="Bitcoin Bottom Detector",
@@ -14,16 +15,69 @@ st.set_page_config(
 # DB LOAD
 # =========================
 DB_PATH = "btc_history.db"
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+
+_ENGINE = None
+
+
+def get_engine():
+    global _ENGINE
+    if _ENGINE is None:
+        _ENGINE = create_engine(DATABASE_URL, pool_pre_ping=True)
+    return _ENGINE
 
 
 def load_data():
+    if DATABASE_URL:
+        engine = get_engine()
+        try:
+            with engine.begin() as conn:
+                conn.execute(text(
+                    """
+                    CREATE TABLE IF NOT EXISTS btc_history (
+                        timestamp INTEGER PRIMARY KEY,
+                        price REAL NOT NULL,
+                        volume REAL,
+                        score INTEGER,
+                        rsi REAL,
+                        bb_width REAL,
+                        macd_hist REAL,
+                        volume_ratio REAL,
+                        range_ratio REAL
+                    )
+                    """
+                ))
+                df = pd.read_sql(text("SELECT * FROM btc_history ORDER BY timestamp"), conn)
+            return df
+        except Exception:
+            return pd.DataFrame()
+
     if not os.path.exists(DB_PATH):
         return pd.DataFrame()
 
     conn = sqlite3.connect(DB_PATH)
-    df = pd.read_sql("SELECT * FROM btc_history ORDER BY timestamp", conn)
-    conn.close()
-    return df
+    try:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS btc_history (
+                timestamp INTEGER PRIMARY KEY,
+                price REAL NOT NULL,
+                volume REAL,
+                score INTEGER,
+                rsi REAL,
+                bb_width REAL,
+                macd_hist REAL,
+                volume_ratio REAL,
+                range_ratio REAL
+            )
+            """
+        )
+        df = pd.read_sql("SELECT * FROM btc_history ORDER BY timestamp", conn)
+        return df
+    except Exception:
+        return pd.DataFrame()
+    finally:
+        conn.close()
 
 
 df = load_data()
@@ -46,7 +100,7 @@ st.sidebar.caption("Not financial advice. Trade at your own risk.")
 st.title("🟠 Bitcoin Bottom Detector")
 
 if df.empty:
-    st.warning("No data available yet.")
+    st.warning("No data available yet. Run btc_monitor.py to populate the database.")
     st.stop()
 
 latest = df.iloc[-1]

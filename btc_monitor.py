@@ -17,6 +17,7 @@ from typing import Dict, List, Tuple
 import json
 import os
 from pathlib import Path
+from sqlalchemy import create_engine, text
 
 
 # ============================================================================
@@ -25,6 +26,9 @@ from pathlib import Path
 
 # Discord webhook URL (set your own)
 DISCORD_WEBHOOK_URL = os.getenv('DISCORD_WEBHOOK_URL', 'YOUR_WEBHOOK_URL_HERE')
+
+# External database URL (optional, e.g. Postgres)
+DATABASE_URL = os.getenv('DATABASE_URL', '').strip()
 
 # API endpoints
 BITFLYER_API = 'https://api.bitflyer.com/v1/ticker?product_code=BTC_JPY'
@@ -65,11 +69,63 @@ DISCORD_TIMEOUT_SECONDS = 10
 
 
 # ============================================================================
+# Database Connection
+# ============================================================================
+
+_ENGINE = None
+
+
+def use_remote_db() -> bool:
+    return bool(DATABASE_URL)
+
+
+def get_engine():
+    global _ENGINE
+    if _ENGINE is None:
+        _ENGINE = create_engine(DATABASE_URL, pool_pre_ping=True)
+    return _ENGINE
+
+
+# ============================================================================
 # Database Setup
 # ============================================================================
 
 def init_db():
     """Initialize SQLite database for price history."""
+    if use_remote_db():
+        engine = get_engine()
+        with engine.begin() as conn:
+            conn.execute(text('''
+                CREATE TABLE IF NOT EXISTS price_history (
+                    timestamp INTEGER PRIMARY KEY,
+                    price REAL NOT NULL,
+                    volume REAL
+                )
+            '''))
+            conn.execute(text('''
+                CREATE TABLE IF NOT EXISTS btc_history (
+                    timestamp INTEGER PRIMARY KEY,
+                    price REAL NOT NULL,
+                    volume REAL,
+                    score INTEGER,
+                    rsi REAL,
+                    bb_width REAL,
+                    macd_hist REAL,
+                    volume_ratio REAL,
+                    range_ratio REAL
+                )
+            '''))
+            conn.execute(text('''
+                CREATE INDEX IF NOT EXISTS idx_timestamp
+                ON price_history(timestamp)
+            '''))
+            conn.execute(text('''
+                CREATE INDEX IF NOT EXISTS idx_btc_timestamp
+                ON btc_history(timestamp)
+            '''))
+        print("[INIT] Database initialized: remote")
+        return
+
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
 
@@ -113,6 +169,19 @@ def init_db():
 
 def save_price(timestamp: int, price: float, volume: float = 0):
     """Save price data to database."""
+    if use_remote_db():
+        engine = get_engine()
+        with engine.begin() as conn:
+            conn.execute(
+                text('''
+                    INSERT INTO price_history (timestamp, price, volume)
+                    VALUES (:timestamp, :price, :volume)
+                    ON CONFLICT (timestamp) DO NOTHING
+                '''),
+                {'timestamp': timestamp, 'price': price, 'volume': volume}
+            )
+        return
+
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
 
@@ -137,6 +206,33 @@ def save_snapshot(timestamp: int, price: float, volume: float, result: Dict):
     score = int(result.get('score', 0) or 0)
     bb_width = bb_width_raw * 100
 
+    if use_remote_db():
+        engine = get_engine()
+        with engine.begin() as conn:
+            conn.execute(
+                text('''
+                    INSERT INTO btc_history (
+                        timestamp, price, volume, score, rsi, bb_width,
+                        macd_hist, volume_ratio, range_ratio
+                    )
+                    VALUES (:timestamp, :price, :volume, :score, :rsi, :bb_width,
+                            :macd_hist, :volume_ratio, :range_ratio)
+                    ON CONFLICT (timestamp) DO NOTHING
+                '''),
+                {
+                    'timestamp': timestamp,
+                    'price': price,
+                    'volume': volume,
+                    'score': score,
+                    'rsi': rsi,
+                    'bb_width': bb_width,
+                    'macd_hist': macd_hist,
+                    'volume_ratio': volume_ratio,
+                    'range_ratio': range_ratio,
+                }
+            )
+        return
+
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
 
@@ -157,17 +253,24 @@ def save_snapshot(timestamp: int, price: float, volume: float, result: Dict):
 
 def get_history(hours: int = 48) -> pd.DataFrame:
     """Get price history as pandas DataFrame."""
-    conn = sqlite3.connect(DB_PATH)
-
     cutoff = int(time.time()) - (hours * 3600)
 
-    df = pd.read_sql_query(
-        'SELECT * FROM price_history WHERE timestamp >= ? ORDER BY timestamp',
-        conn,
-        params=(cutoff,)
-    )
-
-    conn.close()
+    if use_remote_db():
+        engine = get_engine()
+        with engine.connect() as conn:
+            df = pd.read_sql_query(
+                text('SELECT * FROM price_history WHERE timestamp >= :cutoff ORDER BY timestamp'),
+                conn,
+                params={'cutoff': cutoff}
+            )
+    else:
+        conn = sqlite3.connect(DB_PATH)
+        df = pd.read_sql_query(
+            'SELECT * FROM price_history WHERE timestamp >= ? ORDER BY timestamp',
+            conn,
+            params=(cutoff,)
+        )
+        conn.close()
 
     if len(df) > 0:
         df['datetime'] = pd.to_datetime(df['timestamp'], unit='s')
@@ -178,18 +281,31 @@ def get_history(hours: int = 48) -> pd.DataFrame:
 
 def cleanup_old_data(hours: int = 168):
     """Remove data older than specified hours (default: 1 week)."""
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-
     cutoff = int(time.time()) - (hours * 3600)
 
-    c.execute('DELETE FROM price_history WHERE timestamp < ?', (cutoff,))
-    deleted_price = c.rowcount
-    c.execute('DELETE FROM btc_history WHERE timestamp < ?', (cutoff,))
-    deleted_btc = c.rowcount
-    deleted = deleted_price + deleted_btc
-    conn.commit()
-    conn.close()
+    if use_remote_db():
+        engine = get_engine()
+        with engine.begin() as conn:
+            res1 = conn.execute(
+                text('DELETE FROM price_history WHERE timestamp < :cutoff'),
+                {'cutoff': cutoff}
+            )
+            res2 = conn.execute(
+                text('DELETE FROM btc_history WHERE timestamp < :cutoff'),
+                {'cutoff': cutoff}
+            )
+            deleted = (res1.rowcount or 0) + (res2.rowcount or 0)
+    else:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+
+        c.execute('DELETE FROM price_history WHERE timestamp < ?', (cutoff,))
+        deleted_price = c.rowcount
+        c.execute('DELETE FROM btc_history WHERE timestamp < ?', (cutoff,))
+        deleted_btc = c.rowcount
+        deleted = deleted_price + deleted_btc
+        conn.commit()
+        conn.close()
 
     if deleted > 0:
         print(f"[CLEANUP] Removed {deleted} old records")
