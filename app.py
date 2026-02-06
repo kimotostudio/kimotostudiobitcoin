@@ -1,23 +1,99 @@
+import os
 import sqlite3
 
 import pandas as pd
 import streamlit as st
 
-st.set_page_config(page_title="Bitcoin Bottom Detector", layout="wide")
+st.set_page_config(
+    page_title="Bitcoin Bottom Detector",
+    page_icon="🟠",
+    layout="wide"
+)
 
-st.title("📉 Bitcoin Bottom Detector")
-st.caption("KIMOTO STUDIO")
+# =========================
+# DB LOAD
+# =========================
+DB_PATH = "btc_history.db"
 
-# DB読み込み
-conn = sqlite3.connect("btc_history.db")
-df = pd.read_sql("SELECT * FROM price_history ORDER BY timestamp DESC LIMIT 500", conn)
 
-if len(df) == 0:
-    st.warning("データがまだありません。monitorを起動してください。")
+def load_data():
+    if not os.path.exists(DB_PATH):
+        return pd.DataFrame()
+
+    conn = sqlite3.connect(DB_PATH)
+    df = pd.read_sql("SELECT * FROM btc_history ORDER BY timestamp", conn)
+    conn.close()
+    return df
+
+
+df = load_data()
+
+# =========================
+# SIDEBAR
+# =========================
+st.sidebar.title("⚙️ Settings")
+
+score_th = st.sidebar.slider("Score Threshold", 0, 100, 70)
+rsi_th = st.sidebar.slider("RSI Threshold", 0, 100, 30)
+bb_th = st.sidebar.slider("BB Width Threshold", 0.0, 10.0, 2.0)
+
+st.sidebar.markdown("---")
+st.sidebar.caption("Not financial advice. Trade at your own risk.")
+
+# =========================
+# HEADER
+# =========================
+st.title("🟠 Bitcoin Bottom Detector")
+
+if df.empty:
+    st.warning("No data available yet.")
     st.stop()
 
-latest_price = df["price"].iloc[0]
+latest = df.iloc[-1]
 
-st.metric("Latest BTC/JPY", f"{latest_price:,.0f} JPY")
+# =========================
+# SIGNAL STATE
+# =========================
+signal = "SIGNAL" if latest["score"] >= score_th else "MONITOR"
 
-st.line_chart(df.sort_values("timestamp")["price"])
+badge_color = "green" if signal == "SIGNAL" else "gray"
+
+st.markdown(
+    f"""
+    ### Status: <span style='color:{badge_color}; font-weight:bold;'>{signal}</span>
+    """,
+    unsafe_allow_html=True
+)
+
+# =========================
+# KPI ROW
+# =========================
+col1, col2, col3, col4 = st.columns(4)
+
+col1.metric("Price (JPY)", f"{latest['price']:,.0f}")
+col2.metric("RSI", f"{latest['rsi']:.1f}")
+col3.metric("BB Width", f"{latest['bb_width']:.2f}")
+col4.metric("MACD Hist", f"{latest['macd_hist']:.2f}")
+
+# =========================
+# TABS
+# =========================
+tab1, tab2, tab3 = st.tabs(["Price", "Indicators", "Details"])
+
+with tab1:
+    st.subheader("Price")
+    st.line_chart(df.set_index("timestamp")["price"])
+
+with tab2:
+    st.subheader("Indicators")
+    st.line_chart(df.set_index("timestamp")[["rsi", "bb_width", "macd_hist"]])
+
+with tab3:
+    st.subheader("Raw Data")
+    st.dataframe(df.tail(200), use_container_width=True)
+
+# =========================
+# FOOTER
+# =========================
+st.markdown("---")
+st.caption("Educational purpose only. Not investment advice.")

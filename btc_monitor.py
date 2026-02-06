@@ -82,8 +82,27 @@ def init_db():
     ''')
 
     c.execute('''
+        CREATE TABLE IF NOT EXISTS btc_history (
+            timestamp INTEGER PRIMARY KEY,
+            price REAL NOT NULL,
+            volume REAL,
+            score INTEGER,
+            rsi REAL,
+            bb_width REAL,
+            macd_hist REAL,
+            volume_ratio REAL,
+            range_ratio REAL
+        )
+    ''')
+
+    c.execute('''
         CREATE INDEX IF NOT EXISTS idx_timestamp
         ON price_history(timestamp)
+    ''')
+
+    c.execute('''
+        CREATE INDEX IF NOT EXISTS idx_btc_timestamp
+        ON btc_history(timestamp)
     ''')
 
     conn.commit()
@@ -101,6 +120,36 @@ def save_price(timestamp: int, price: float, volume: float = 0):
         INSERT OR REPLACE INTO price_history (timestamp, price, volume)
         VALUES (?, ?, ?)
     ''', (timestamp, price, volume))
+
+    conn.commit()
+    conn.close()
+
+
+def save_snapshot(timestamp: int, price: float, volume: float, result: Dict):
+    """Save indicator snapshot for the Streamlit app."""
+    indicators = result.get('indicators', {})
+    rsi = float(indicators.get('rsi', 0.0) or 0.0)
+    bb_width_raw = indicators.get('bb', {}).get('width', 0.0) or 0.0
+    macd_hist = float(indicators.get('macd', {}).get('histogram', 0.0) or 0.0)
+    volume_ratio = float(indicators.get('volume', {}).get('ratio', 0.0) or 0.0)
+    range_ratio = float(indicators.get('stability', {}).get('range_ratio', 0.0) or 0.0)
+
+    score = int(result.get('score', 0) or 0)
+    bb_width = bb_width_raw * 100
+
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+
+    c.execute('''
+        INSERT OR REPLACE INTO btc_history (
+            timestamp, price, volume, score, rsi, bb_width,
+            macd_hist, volume_ratio, range_ratio
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (
+        timestamp, price, volume, score, rsi, bb_width,
+        macd_hist, volume_ratio, range_ratio
+    ))
 
     conn.commit()
     conn.close()
@@ -135,8 +184,10 @@ def cleanup_old_data(hours: int = 168):
     cutoff = int(time.time()) - (hours * 3600)
 
     c.execute('DELETE FROM price_history WHERE timestamp < ?', (cutoff,))
-
-    deleted = c.rowcount
+    deleted_price = c.rowcount
+    c.execute('DELETE FROM btc_history WHERE timestamp < ?', (cutoff,))
+    deleted_btc = c.rowcount
+    deleted = deleted_price + deleted_btc
     conn.commit()
     conn.close()
 
@@ -358,17 +409,11 @@ def analyze_signals(df: pd.DataFrame) -> Dict:
             'message': str,
         }
     """
-    if len(df) < 100:
-        return {
-            'score': 0,
-            'signals': {},
-            'alert': False,
-            'message': '[WAIT] Insufficient data (need 2+ hours of collection)',
-        }
+    insufficient = len(df) < 100
 
-    prices = df['price']
+    prices = df['price'] if len(df) > 0 else pd.Series(dtype=float)
 
-    # Calculate all indicators
+    # Calculate all indicators (safe for short history)
     rsi = calculate_rsi(prices)
     bb = calculate_bollinger_bands(prices)
     macd = calculate_macd(prices)
@@ -377,56 +422,48 @@ def analyze_signals(df: pd.DataFrame) -> Dict:
 
     # Score each signal
     score = 0
-    signals = {}
+    signals = {key: False for key in WEIGHTS.keys()}
 
-    # 1. RSI Oversold (25 points)
-    if rsi < RSI_OVERSOLD:
-        score += WEIGHTS['rsi_oversold']
-        signals['rsi_oversold'] = True
-    else:
-        signals['rsi_oversold'] = False
+    if not insufficient:
+        # 1. RSI Oversold (25 points)
+        if rsi < RSI_OVERSOLD:
+            score += WEIGHTS['rsi_oversold']
+            signals['rsi_oversold'] = True
 
-    # 2. RSI Recovery (15 points)
-    if RSI_OVERSOLD <= rsi < RSI_NEUTRAL:
-        score += WEIGHTS['rsi_recovery']
-        signals['rsi_recovery'] = True
-    else:
-        signals['rsi_recovery'] = False
+        # 2. RSI Recovery (15 points)
+        if RSI_OVERSOLD <= rsi < RSI_NEUTRAL:
+            score += WEIGHTS['rsi_recovery']
+            signals['rsi_recovery'] = True
 
-    # 3. Bollinger Band Squeeze (20 points)
-    if bb['squeeze']:
-        score += WEIGHTS['bb_squeeze']
-        signals['bb_squeeze'] = True
-    else:
-        signals['bb_squeeze'] = False
+        # 3. Bollinger Band Squeeze (20 points)
+        if bb['squeeze']:
+            score += WEIGHTS['bb_squeeze']
+            signals['bb_squeeze'] = True
 
-    # 4. MACD Bullish Cross (20 points)
-    if macd['bullish_cross'] or macd['histogram'] > MACD_CROSS_THRESHOLD:
-        score += WEIGHTS['macd_bullish']
-        signals['macd_bullish'] = True
-    else:
-        signals['macd_bullish'] = False
+        # 4. MACD Bullish Cross (20 points)
+        if macd['bullish_cross'] or macd['histogram'] > MACD_CROSS_THRESHOLD:
+            score += WEIGHTS['macd_bullish']
+            signals['macd_bullish'] = True
 
-    # 5. Volume Accumulation (10 points)
-    if volume['accumulation']:
-        score += WEIGHTS['volume_increase']
-        signals['volume_increase'] = True
-    else:
-        signals['volume_increase'] = False
+        # 5. Volume Accumulation (10 points)
+        if volume['accumulation']:
+            score += WEIGHTS['volume_increase']
+            signals['volume_increase'] = True
 
-    # 6. Price Stability (10 points)
-    if stability['stable']:
-        score += WEIGHTS['price_stability']
-        signals['price_stability'] = True
-    else:
-        signals['price_stability'] = False
+        # 6. Price Stability (10 points)
+        if stability['stable']:
+            score += WEIGHTS['price_stability']
+            signals['price_stability'] = True
 
     # Generate message
-    current_price = prices.iloc[-1]
+    current_price = prices.iloc[-1] if len(prices) > 0 else 0
 
     alert = score >= SIGNAL_THRESHOLD
 
-    if alert:
+    if insufficient:
+        alert = False
+        message = '[WAIT] Insufficient data (need 2+ hours of collection)'
+    elif alert:
         active_signals = [
             name.replace('_', ' ').title()
             for name, active in signals.items() if active
@@ -583,6 +620,7 @@ def main_loop():
 
             # Analyze
             result = analyze_signals(df)
+            save_snapshot(timestamp, price, volume, result)
 
             # Display status
             now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
