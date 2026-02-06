@@ -436,12 +436,27 @@ def price_chart_with_prediction(
                 x_val = x_val.isoformat()
             else:
                 x_val = str(x_val)
-            fig.add_vline(
+            fig.add_shape(
+                type="line",
+                x0=x_val,
+                x1=x_val,
+                y0=0,
+                y1=1,
+                xref="x",
+                yref="paper",
+                line=dict(
+                    color="rgba(255,255,255,0.3)",
+                    dash="dash",
+                ),
+            )
+            fig.add_annotation(
                 x=x_val,
-                line_dash="dash",
-                line_color="rgba(255,255,255,0.3)",
-                annotation_text="予測開始",
-                annotation_position="top"
+                y=1,
+                xref="x",
+                yref="paper",
+                text="予測開始",
+                showarrow=False,
+                yanchor="bottom",
             )
 
     fig.update_layout(
