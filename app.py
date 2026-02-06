@@ -689,9 +689,9 @@ def main():
     st.markdown("---")
 
     # ── Timeframe Selector ──
-    tf_options = ["24h", "7d", "30d", "180d", "365d", "all"]
+    tf_options = ["24h", "7d", "14d", "30d", "180d", "365d", "all"]
     if "timeframe" not in st.session_state:
-        st.session_state["timeframe"] = "7d"
+        st.session_state["timeframe"] = "14d"
     tf = st.sidebar.selectbox(
         "時間軸",
         tf_options,
@@ -702,15 +702,17 @@ def main():
     tf_hours_map = {
         "24h": 24,
         "7d": 168,
+        "14d": 336,
         "30d": 720,
         "180d": 4320,
         "365d": 8760,
         "all": None,
     }
-    tf_pred_map = {"24h": 6, "7d": 24, "30d": 72, "180d": 168, "365d": 168, "all": 168}
+    tf_pred_map = {"24h": 6, "7d": 24, "14d": 72, "30d": 72, "180d": 168, "365d": 168, "all": 168}
     tf_title_map = {
         "24h": "BTC/JPY 24時間チャート + 6時間予測",
         "7d": "BTC/JPY 7日チャート + 24時間予測",
+        "14d": "BTC/JPY 14日チャート + 3日予測",
         "30d": "BTC/JPY 30日チャート + 3日予測",
         "180d": "BTC/JPY 180日チャート + 7日予測",
         "365d": "BTC/JPY 365日チャート + 7日予測",
