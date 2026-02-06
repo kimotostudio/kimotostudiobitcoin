@@ -55,6 +55,14 @@ WEIGHTS = {
 # Alert threshold
 SIGNAL_THRESHOLD = 60  # Trigger alert if score >= 60/100
 
+# Alert delivery reliability
+ALERT_COOLDOWN_SECONDS = 3600
+ALERT_DEDUP_WINDOW = 900
+ALERT_PRICE_BUCKET = 10_000
+DISCORD_MAX_RETRIES = 3
+DISCORD_RETRY_BACKOFF_SECONDS = 2
+DISCORD_TIMEOUT_SECONDS = 10
+
 
 # ============================================================================
 # Database Setup
@@ -463,31 +471,60 @@ def analyze_signals(df: pd.DataFrame) -> Dict:
 # Discord Notification
 # ============================================================================
 
+def build_alert_key(price: float, signals: Dict[str, bool], score: int) -> str:
+    """Build a dedupe key for alert messages."""
+    active = sorted([name for name, active in signals.items() if active])
+    if ALERT_PRICE_BUCKET > 0:
+        price_bucket = int(price // ALERT_PRICE_BUCKET)
+    else:
+        price_bucket = int(price)
+    return f"{score}|{price_bucket}|{'|'.join(active)}"
+
+
 def send_discord_alert(message: str):
     """Send alert to Discord webhook."""
     if not DISCORD_WEBHOOK_URL or DISCORD_WEBHOOK_URL == 'YOUR_WEBHOOK_URL_HERE':
         print("[WARN] Discord webhook not configured (set DISCORD_WEBHOOK_URL env var)")
-        return
+        return False
 
-    try:
-        payload = {
-            'content': message,
-            'username': 'BTC Bottom Detector',
-        }
+    payload = {
+        'content': message,
+        'username': 'BTC Bottom Detector',
+    }
 
-        response = requests.post(
-            DISCORD_WEBHOOK_URL,
-            json=payload,
-            timeout=10
-        )
+    for attempt in range(1, DISCORD_MAX_RETRIES + 1):
+        try:
+            response = requests.post(
+                DISCORD_WEBHOOK_URL,
+                json=payload,
+                timeout=DISCORD_TIMEOUT_SECONDS
+            )
 
-        if response.status_code == 204:
-            print("[DISCORD] Alert sent successfully")
-        else:
+            if 200 <= response.status_code < 300:
+                print("[DISCORD] Alert sent successfully")
+                return True
+
+            retry_after = None
+            if response.status_code == 429:
+                header = response.headers.get('Retry-After')
+                if header:
+                    try:
+                        retry_after = float(header)
+                    except ValueError:
+                        retry_after = None
+
             print(f"[WARN] Discord alert failed: HTTP {response.status_code}")
 
-    except Exception as e:
-        print(f"[ERROR] Discord send failed: {e}")
+            if attempt < DISCORD_MAX_RETRIES:
+                sleep_time = retry_after if retry_after is not None else (DISCORD_RETRY_BACKOFF_SECONDS ** attempt)
+                time.sleep(sleep_time)
+
+        except Exception as e:
+            print(f"[ERROR] Discord send failed (attempt {attempt}/{DISCORD_MAX_RETRIES}): {e}")
+            if attempt < DISCORD_MAX_RETRIES:
+                time.sleep(DISCORD_RETRY_BACKOFF_SECONDS ** attempt)
+
+    return False
 
 
 # ============================================================================
@@ -506,7 +543,7 @@ def main_loop():
     init_db()
 
     last_alert_time = 0
-    alert_cooldown = 3600  # 1 hour between alerts
+    last_alert_key = None
 
     print("[START] Monitoring started")
     print(f"[CONFIG] Check interval: {CHECK_INTERVAL}s")
@@ -515,7 +552,13 @@ def main_loop():
     print()
 
     iteration = 0
-    stats = {'total_checks': 0, 'alerts_sent': 0, 'fetch_errors': 0}
+    stats = {
+        'total_checks': 0,
+        'alerts_sent': 0,
+        'alerts_suppressed': 0,
+        'fetch_errors': 0,
+        'discord_failures': 0,
+    }
 
     while True:
         try:
@@ -548,26 +591,50 @@ def main_loop():
             # Send alert if threshold met
             if result['alert']:
                 current_time = time.time()
+                alert_key = build_alert_key(price, result['signals'], result['score'])
 
-                if current_time - last_alert_time >= alert_cooldown:
-                    send_discord_alert(result['message'])
-                    last_alert_time = current_time
-                    stats['alerts_sent'] += 1
-                else:
-                    remaining = int(alert_cooldown - (current_time - last_alert_time))
+                if current_time - last_alert_time < ALERT_COOLDOWN_SECONDS:
+                    remaining = int(ALERT_COOLDOWN_SECONDS - (current_time - last_alert_time))
                     print(f"[COOLDOWN] Next alert in {remaining}s")
+                    stats['alerts_suppressed'] += 1
+                elif last_alert_key == alert_key and (current_time - last_alert_time) < ALERT_DEDUP_WINDOW:
+                    remaining = int(ALERT_DEDUP_WINDOW - (current_time - last_alert_time))
+                    print(f"[DEDUPE] Duplicate alert suppressed ({remaining}s)")
+                    stats['alerts_suppressed'] += 1
+                else:
+                    sent = send_discord_alert(result['message'])
+                    if sent:
+                        last_alert_time = current_time
+                        last_alert_key = alert_key
+                        stats['alerts_sent'] += 1
+                    else:
+                        stats['discord_failures'] += 1
 
             # Cleanup old data every 100 iterations
             if iteration % 100 == 0:
                 cleanup_old_data()
-                print(f"[STATS] checks={stats['total_checks']} alerts={stats['alerts_sent']} errors={stats['fetch_errors']}")
+                print(
+                    "[STATS] "
+                    f"checks={stats['total_checks']} "
+                    f"alerts={stats['alerts_sent']} "
+                    f"suppressed={stats['alerts_suppressed']} "
+                    f"errors={stats['fetch_errors']} "
+                    f"discord_failures={stats['discord_failures']}"
+                )
 
             # Wait
             time.sleep(CHECK_INTERVAL)
 
         except KeyboardInterrupt:
             print("\n[STOP] Monitor stopped by user")
-            print(f"[STATS] Final: checks={stats['total_checks']} alerts={stats['alerts_sent']} errors={stats['fetch_errors']}")
+            print(
+                "[STATS] Final: "
+                f"checks={stats['total_checks']} "
+                f"alerts={stats['alerts_sent']} "
+                f"suppressed={stats['alerts_suppressed']} "
+                f"errors={stats['fetch_errors']} "
+                f"discord_failures={stats['discord_failures']}"
+            )
             break
 
         except Exception as e:

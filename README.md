@@ -122,6 +122,12 @@ Volume Ratio: 1.35x
 | `RSI_OVERSOLD` | 35 | RSI売られすぎ判定 |
 | `BB_SQUEEZE_THRESHOLD` | 0.02 | BB収縮判定（2%） |
 | `VOLUME_INCREASE` | 1.2 | 出来高増加判定（1.2倍） |
+| `ALERT_COOLDOWN_SECONDS` | 3600 | アラート間隔（秒） |
+| `ALERT_DEDUP_WINDOW` | 900 | 同一アラートの重複抑制（秒） |
+| `ALERT_PRICE_BUCKET` | 10000 | 重複判定の価格バケット（JPY） |
+| `DISCORD_MAX_RETRIES` | 3 | Discord送信のリトライ回数 |
+| `DISCORD_RETRY_BACKOFF_SECONDS` | 2 | Discord送信リトライの指数バックオフ基数 |
+| `DISCORD_TIMEOUT_SECONDS` | 10 | Discord送信タイムアウト（秒） |
 
 ### カスタマイズ例
 

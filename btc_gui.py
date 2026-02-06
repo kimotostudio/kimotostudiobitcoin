@@ -27,12 +27,15 @@ from btc_monitor import (
     save_price,
     get_history,
     analyze_signals,
+    build_alert_key,
     send_discord_alert,
     cleanup_old_data,
     SIGNAL_THRESHOLD,
     RSI_OVERSOLD,
     CHECK_INTERVAL,
     WEIGHTS,
+    ALERT_COOLDOWN_SECONDS,
+    ALERT_DEDUP_WINDOW,
 )
 
 
@@ -115,10 +118,16 @@ class BTCBottomDetectorGUI:
         self.current_score = 0
         self.current_signals: Dict = {}
         self.last_alert_time = 0
-        self.alert_cooldown = 3600
+        self.last_alert_key = None
 
         # Stats (KIMOTO: stats-first)
-        self.stats = {'total_checks': 0, 'alerts_sent': 0, 'fetch_errors': 0}
+        self.stats = {
+            'total_checks': 0,
+            'alerts_sent': 0,
+            'alerts_suppressed': 0,
+            'fetch_errors': 0,
+            'discord_failures': 0,
+        }
 
         # Initialize database
         init_db()
@@ -518,7 +527,9 @@ class BTCBottomDetectorGUI:
         self.stats_label.config(
             text=f"取得: {self.stats['total_checks']}  "
                  f"通知: {self.stats['alerts_sent']}  "
-                 f"失敗: {self.stats['fetch_errors']}"
+                 f"抑制: {self.stats['alerts_suppressed']}  "
+                 f"取得失敗: {self.stats['fetch_errors']}  "
+                 f"Discord失敗: {self.stats['discord_failures']}"
         )
         self.root.after(1000, self._tick_uptime)
 
@@ -685,11 +696,25 @@ class BTCBottomDetectorGUI:
         # -- Alert --
         if d['alert']:
             now = time.time()
-            if now - self.last_alert_time >= self.alert_cooldown:
+            alert_key = build_alert_key(price, signals, score)
+            if now - self.last_alert_time < ALERT_COOLDOWN_SECONDS:
+                remaining = int(ALERT_COOLDOWN_SECONDS - (now - self.last_alert_time))
+                self._log("クールダウン", f"次の通知まで {remaining}s")
+                self.stats['alerts_suppressed'] += 1
+            elif self.last_alert_key == alert_key and (now - self.last_alert_time) < ALERT_DEDUP_WINDOW:
+                remaining = int(ALERT_DEDUP_WINDOW - (now - self.last_alert_time))
+                self._log("重複抑制", f"同一通知を抑制 ({remaining}s)")
+                self.stats['alerts_suppressed'] += 1
+            else:
                 self._log("通知", f"スコア {score}/100 | {price:,.0f} 円")
-                send_discord_alert(d['message'])
-                self.last_alert_time = now
-                self.stats['alerts_sent'] += 1
+                sent = send_discord_alert(d['message'])
+                if sent:
+                    self.last_alert_time = now
+                    self.last_alert_key = alert_key
+                    self.stats['alerts_sent'] += 1
+                else:
+                    self.stats['discord_failures'] += 1
+                    self._log("エラー", "Discord送信に失敗")
 
         # -- Log line --
         self._log("取得", f"スコア: {score}  |  {price:,.0f} 円")
@@ -857,10 +882,18 @@ class BTCBottomDetectorGUI:
         stats_text = (
             f"取得回数: {self.stats['total_checks']}    "
             f"通知送信: {self.stats['alerts_sent']}    "
-            f"取得失敗: {self.stats['fetch_errors']}"
+            f"抑制: {self.stats['alerts_suppressed']}"
+        )
+        errors_text = (
+            f"取得失敗: {self.stats['fetch_errors']}    "
+            f"Discord失敗: {self.stats['discord_failures']}"
         )
         tk.Label(
             win, text=stats_text, font=F_MONO,
+            fg=C_TEXT_SUB, bg=C_PANEL
+        ).pack(anchor=tk.W, padx=24, pady=(0, 16))
+        tk.Label(
+            win, text=errors_text, font=F_MONO,
             fg=C_TEXT_SUB, bg=C_PANEL
         ).pack(anchor=tk.W, padx=24, pady=(0, 16))
 
