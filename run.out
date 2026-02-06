@@ -1,0 +1,12 @@
+============================================================
+Bitcoin Bottom Detector - Professional Grade
+KIMOTO STUDIO
+============================================================
+
+[INIT] Database initialized: btc_history.db
+[START] Monitoring started
+[CONFIG] Check interval: 60s
+[CONFIG] Signal threshold: 60/100
+[CONFIG] History window: 48h
+
+[2026-02-06 23:08:26] [WAIT] Insufficient data (need 2+ hours of collection)
