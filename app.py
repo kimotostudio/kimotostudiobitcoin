@@ -19,8 +19,9 @@ from sklearn.linear_model import LinearRegression
 
 # Bounded history reads + default chart span
 QUERY_LIMIT = 50000
-DEFAULT_VIEW_DAYS = 90
-VIEW_RANGE_OPTIONS = [7, 30, 90, 180, 365]
+DEFAULT_VIEW_DAYS = 14
+TIMEFRAME_OPTIONS = {"24h": 1, "1w": 7, "2w": 14, "1m": 30}
+PREDICTION_HOURS = {"24h": 24, "1w": 72, "2w": 168, "1m": 168}
 
 # Import core indicator functions from btc_monitor (same repo)
 try:
@@ -483,8 +484,10 @@ def price_chart_with_prediction(
         yaxis=dict(tickformat=","),
     )
 
-    if timeframe == "24h":
+    if timeframe in ("24h",):
         fig.update_xaxes(tickformat="%H:%M")
+    elif timeframe in ("1w", "2w"):
+        fig.update_xaxes(tickformat="%m/%d %H:%M")
     else:
         fig.update_xaxes(tickformat="%m/%d")
 
@@ -699,20 +702,22 @@ def main():
 
     st.markdown("---")
 
-    # ?? View Range Selector ???????????????????????????????????????????????????
-    if "view_days" not in st.session_state:
-        st.session_state["view_days"] = DEFAULT_VIEW_DAYS
-    view_days = st.sidebar.selectbox(
-        "????(?)",
-        VIEW_RANGE_OPTIONS,
-        index=VIEW_RANGE_OPTIONS.index(st.session_state["view_days"]),
-    )
-    st.session_state["view_days"] = view_days
+    # ── Timeframe Selector ──
+    tf_cols = st.columns(len(TIMEFRAME_OPTIONS))
+    if "timeframe" not in st.session_state:
+        st.session_state["timeframe"] = "2w"
+    for i, (tf_key, tf_days) in enumerate(TIMEFRAME_OPTIONS.items()):
+        with tf_cols[i]:
+            btn_type = "primary" if st.session_state["timeframe"] == tf_key else "secondary"
+            if st.button(tf_key, key=f"tf_{tf_key}", use_container_width=True, type=btn_type):
+                st.session_state["timeframe"] = tf_key
+                st.rerun()
 
-    view_pred_map = {7: 24, 30: 72, 90: 72, 180: 168, 365: 168}
-    prediction_hours = view_pred_map.get(view_days, 72)
-    pred_label = f"{prediction_hours}??" if prediction_hours < 48 else f"{prediction_hours // 24}?"
-    chart_title = f"BTC/JPY {view_days}????? + {pred_label}??"
+    active_tf = st.session_state["timeframe"]
+    view_days = TIMEFRAME_OPTIONS[active_tf]
+    prediction_hours = PREDICTION_HOURS[active_tf]
+    pred_label = f"{prediction_hours}時間" if prediction_hours < 48 else f"{prediction_hours // 24}日"
+    chart_title = f"BTC/JPY {active_tf} チャート + {pred_label}予測"
 
     df_price_full = load_price_history(None)
     df_snap_full = load_snapshot_history(None)
@@ -731,9 +736,9 @@ def main():
 
     prediction_df = predict_price_trend(df_price_view, prediction_hours)
 
-    # ?? Price Chart ???????????????????????????????????????????????????????????
+    # ── Price Chart ──
     st.subheader(chart_title)
-    price_chart_with_prediction(df_price_view, prediction_df, chart_title, f"{view_days}d")
+    price_chart_with_prediction(df_price_view, prediction_df, chart_title, active_tf)
 
     if len(prediction_df) > 0 and len(df_price_view) > 0:
         predicted_change = (
@@ -743,17 +748,17 @@ def main():
 
         p1, p2, p3 = st.columns(3)
         with p1:
-            st.metric("????", f"?{df_price_view['price'].iloc[-1]:,.0f}")
+            st.metric("現在価格", f"¥{df_price_view['price'].iloc[-1]:,.0f}")
         with p2:
-            hours_text = f"{prediction_hours}???" if prediction_hours < 48 else f"{prediction_hours//24}??"
+            hours_text = f"{prediction_hours}時間後" if prediction_hours < 48 else f"{prediction_hours//24}日後"
             st.metric(
-                f"???? ({hours_text})",
-                f"?{prediction_df['price'].iloc[-1]:,.0f}",
+                f"予測価格 ({hours_text})",
+                f"¥{prediction_df['price'].iloc[-1]:,.0f}",
                 delta=f"{predicted_change:+.2f}%"
             )
         with p3:
-            direction = "??" if predicted_change > 0 else "??"
-            st.metric("??????", direction, delta=f"{abs(predicted_change):.2f}%")
+            direction = "上昇" if predicted_change > 0 else "下降"
+            st.metric("トレンド方向", direction, delta=f"{abs(predicted_change):.2f}%")
 
     # ── Score Timeline ──
     st.subheader("スコア推移")
