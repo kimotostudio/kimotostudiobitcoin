@@ -31,7 +31,16 @@ def fetch_histoday(days: int = 365) -> list[dict]:
     return data["Data"]["Data"]
 
 
-def ensure_table(conn) -> None:
+def ensure_tables(conn) -> None:
+    conn.execute(text(
+        """
+        CREATE TABLE IF NOT EXISTS price_history (
+            timestamp INTEGER PRIMARY KEY,
+            price REAL NOT NULL,
+            volume REAL
+        )
+        """
+    ))
     conn.execute(text(
         """
         CREATE TABLE IF NOT EXISTS btc_history (
@@ -53,12 +62,27 @@ def insert_rows(engine, rows: list[dict]) -> int:
     inserted = 0
     total = len(rows)
     with engine.begin() as conn:
-        ensure_table(conn)
+        ensure_tables(conn)
         for i, row in enumerate(rows, start=1):
             ts = row.get("time")
             price = row.get("close")
+            volume = row.get("volumeto")
             if not ts or price is None:
                 continue
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO price_history (timestamp, price, volume)
+                    VALUES (:ts, :price, :volume)
+                    ON CONFLICT (timestamp) DO NOTHING
+                    """
+                ),
+                {
+                    "ts": int(ts),
+                    "price": float(price),
+                    "volume": float(volume) if volume is not None else None,
+                },
+            )
             res = conn.execute(
                 text(
                     """
