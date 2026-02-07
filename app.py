@@ -69,6 +69,15 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
+# SEO / OGP meta tags
+st.markdown("""
+<meta property="og:title" content="Bitcoin Bottom Detector - BTC底値自動検出">
+<meta property="og:description" content="6つのテクニカル指標でビットコインの底値を自動検出。リアルタイム監視・無料・24時間稼働">
+<meta property="og:url" content="https://kimotostudiobitcoin-5hsuskqwxuu4affhtp2eg9.streamlit.app/">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="description" content="ビットコイン底値検出ツール。RSI・MACD・ボリンジャーバンド等6指標で自動分析。完全無料。">
+""", unsafe_allow_html=True)
+
 
 # ============================================================================
 # Custom CSS
@@ -617,10 +626,119 @@ def signal_panel(signals: dict, score: int):
 
 
 # ============================================================================
-# About / Footer
+# Landing / Sidebar / Footer
 # ============================================================================
 
 APP_URL = "https://kimotostudiobitcoin-5hsuskqwxuu4affhtp2eg9.streamlit.app"
+GITHUB_URL = "https://github.com/kimotostudio/kimotostudiobitcoin"
+
+
+def render_landing_hero():
+    """Hero section for first-time visitors."""
+    st.markdown("""
+<div style="
+    background: linear-gradient(135deg, #0f1419 0%, #1a3a2e 100%);
+    padding: 2rem;
+    border-radius: 1rem;
+    border: 2px solid #10b981;
+    margin-bottom: 2rem;
+">
+    <h1 style="color: #10b981; margin: 0; font-size: 2rem;">
+        Bitcoin Bottom Detector
+    </h1>
+    <p style="color: #e5e7eb; font-size: 1.1rem; margin: 0.5rem 0 0 0;">
+        プロトレーダー級の6指標で底値を自動検出 | 完全無料 | リアルタイム監視
+    </p>
+</div>
+""", unsafe_allow_html=True)
+
+
+def render_quick_start():
+    """Quick start guide in sidebar."""
+    with st.sidebar.expander("クイックスタート", expanded=False):
+        st.markdown("""
+### 使い方（30秒）
+
+1. **スコアを確認**
+   60点以上 = 底値圏シグナル
+
+2. **チャートを確認**
+   青線 = 実績 / 黄点線 = 予測
+
+3. **指標を確認**
+   緑丸 = シグナル発火中
+
+4. **時間軸を切替**
+   24h / 1w / 2w / 1m
+
+### 推奨
+
+- 毎日1回チェック
+- スコア60以上で注目
+- 複数指標が揃ったら検討
+""")
+
+
+def render_stats_badge():
+    """Display usage stats badge in sidebar."""
+    st.sidebar.markdown("""
+<div style="text-align: center; padding: 1rem; background: #1a1d23; border-radius: 0.5rem;">
+    <div style="font-size: 2rem; color: #10b981; font-weight: bold;">24/7</div>
+    <div style="color: #9ca3af; font-size: 0.875rem;">リアルタイム監視</div>
+    <div style="font-size: 2rem; color: #10b981; font-weight: bold; margin-top: 1rem;">6</div>
+    <div style="color: #9ca3af; font-size: 0.875rem;">テクニカル指標</div>
+    <div style="font-size: 2rem; color: #10b981; font-weight: bold; margin-top: 1rem;">100%</div>
+    <div style="color: #9ca3af; font-size: 0.875rem;">無料・オープンソース</div>
+</div>
+""", unsafe_allow_html=True)
+
+
+def render_github_link():
+    """GitHub star link in sidebar."""
+    st.sidebar.markdown("---")
+    st.sidebar.markdown(f"""
+<div style="text-align: center;">
+    <a href="{GITHUB_URL}" target="_blank" style="
+        display: inline-block;
+        background: #1a1d23;
+        color: #e5e7eb;
+        padding: 8px 16px;
+        border-radius: 8px;
+        text-decoration: none;
+        border: 1px solid #10b981;
+    ">
+        GitHub
+    </a>
+</div>
+""", unsafe_allow_html=True)
+
+
+def render_system_stats(df: pd.DataFrame):
+    """Show system health and data freshness."""
+    with st.expander("システム統計", expanded=False):
+        s1, s2, s3, s4 = st.columns(4)
+        with s1:
+            st.metric("データ収集期間", f"{len(df) / 60 / 24:.1f}日")
+        with s2:
+            st.metric("更新頻度", "60秒")
+        with s3:
+            st.metric("稼働状態", "24/7")
+        with s4:
+            st.metric("分析指標", "6種")
+
+        if len(df) > 0:
+            latest = df.index[-1]
+            now = pd.Timestamp.utcnow().tz_localize(None)
+            if getattr(latest, "tz", None) is not None:
+                latest = latest.tz_convert("UTC").tz_localize(None)
+            delay_min = (now - latest).total_seconds() / 60
+
+            if delay_min < 5:
+                st.success(f"データは最新です（{delay_min:.0f}分前）")
+            elif delay_min < 60:
+                st.warning(f"データが少し古い可能性（{delay_min:.0f}分前）")
+            else:
+                st.error(f"データ更新が停止しています（{delay_min / 60:.1f}時間前）")
 
 
 def render_about_page():
