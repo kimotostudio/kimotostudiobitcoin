@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
+import requests
 import streamlit as st
 from scipy import stats
 from sqlalchemy import create_engine, text
@@ -85,43 +86,102 @@ st.markdown("""
 
 st.markdown("""
 <style>
-    .stApp {
-        background-color: #0d1117;
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+    .stApp { background: linear-gradient(135deg, #0f1419 0%, #1a1d23 100%); }
+    * { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }
+    code, pre, [data-testid="stMetricValue"], .mono {
+        font-family: 'JetBrains Mono', 'Courier New', monospace !important;
     }
+
+    h1 {
+        background: linear-gradient(135deg, #10b981, #fbbf24);
+        -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+        background-clip: text; font-weight: 800; letter-spacing: -0.03em;
+    }
+    h2 { color: #e5e7eb; font-weight: 700; letter-spacing: -0.02em; }
+    h3 { color: #e5e7eb; font-weight: 600; }
+
     [data-testid="stMetricValue"] {
-        font-size: 2.2rem;
-        font-weight: 700;
-        font-family: 'JetBrains Mono', 'Consolas', monospace;
+        font-size: 2.5rem !important; font-weight: 700 !important;
+        background: linear-gradient(135deg, #10b981, #059669);
+        -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+        background-clip: text;
     }
     [data-testid="stMetricLabel"] {
-        color: #8b949e;
-        font-size: 0.85rem;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
+        color: #9ca3af !important; font-size: 0.85rem !important;
+        text-transform: uppercase; letter-spacing: 0.1em; font-weight: 600 !important;
     }
-    h1 { color: #58a6ff; font-weight: 700; }
-    h2, h3 { color: #c9d1d9; font-weight: 600; }
-    .stProgress > div > div { background-color: #3fb950; }
-    .signal-box {
-        padding: 1rem 1.5rem;
+
+    .stButton > button {
+        background: linear-gradient(135deg, #10b981, #059669);
+        color: #000; font-weight: 600; border: none; border-radius: 0.75rem;
+        padding: 0.75rem 1.5rem; transition: all 0.3s ease;
+    }
+    .stButton > button:hover { transform: translateY(-2px); box-shadow: 0 10px 15px rgba(0,0,0,0.4); }
+    .stButton > button[kind="primary"] {
+        background: linear-gradient(135deg, #10b981, #fbbf24);
+        box-shadow: 0 0 20px rgba(16,185,129,0.4);
+    }
+    .stButton > button[kind="secondary"] {
+        background: rgba(26,29,35,0.6); color: #9ca3af;
+        border: 1px solid rgba(16,185,129,0.2);
+    }
+    .stButton > button[kind="secondary"]:hover {
+        background: rgba(26,29,35,0.9); border-color: #10b981; color: #e5e7eb;
+    }
+
+    .stProgress > div > div {
+        background: linear-gradient(90deg, #10b981, #fbbf24);
+        border-radius: 1rem; box-shadow: 0 0 15px rgba(16,185,129,0.5);
+    }
+    .stProgress > div { background: rgba(26,29,35,0.6); border-radius: 1rem; }
+
+    hr {
+        margin: 2rem 0; border: none; height: 1px;
+        background: linear-gradient(90deg, transparent, rgba(16,185,129,0.2) 20%, rgba(16,185,129,0.2) 80%, transparent);
+    }
+
+    [data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #1a1d23 0%, #0f1419 100%);
+        border-right: 1px solid rgba(16,185,129,0.2);
+    }
+
+    .stTextInput > div > div {
+        background: rgba(26,29,35,0.6); border: 1px solid rgba(16,185,129,0.2);
+        border-radius: 0.75rem; color: #e5e7eb; transition: all 0.3s ease;
+    }
+    .stTextInput > div > div:focus-within {
+        border-color: #10b981; box-shadow: 0 0 0 3px rgba(16,185,129,0.1);
+    }
+    .stTextInput input { color: #e5e7eb; font-family: 'JetBrains Mono', monospace; }
+
+    [data-testid="stExpander"] {
+        background: rgba(26,29,35,0.4); border: 1px solid rgba(16,185,129,0.2);
         border-radius: 0.75rem;
-        margin-bottom: 1rem;
-        font-size: 1rem;
+    }
+    [data-testid="stExpander"]:hover { border-color: #10b981; }
+
+    .signal-box {
+        padding: 1rem 1.5rem; border-radius: 0.75rem;
+        margin-bottom: 1rem; font-size: 1rem;
+        backdrop-filter: blur(10px);
     }
     .signal-fire {
-        background-color: rgba(63, 185, 80, 0.15);
-        border: 1px solid #3fb950;
-        color: #3fb950;
+        background: rgba(16,185,129,0.15); border: 1px solid #10b981; color: #10b981;
+        box-shadow: 0 0 20px rgba(16,185,129,0.2);
     }
     .signal-watch {
-        background-color: rgba(210, 153, 34, 0.15);
-        border: 1px solid #d29922;
-        color: #d29922;
+        background: rgba(251,191,36,0.15); border: 1px solid #fbbf24; color: #fbbf24;
     }
     .signal-normal {
-        background-color: rgba(139, 148, 158, 0.10);
-        border: 1px solid #30363d;
-        color: #8b949e;
+        background: rgba(107,114,128,0.10); border: 1px solid #30363d; color: #6b7280;
+    }
+
+    ::-webkit-scrollbar { width: 10px; }
+    ::-webkit-scrollbar-track { background: #0f1419; }
+    ::-webkit-scrollbar-thumb {
+        background: linear-gradient(135deg, #10b981, #059669); border-radius: 5px;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -634,21 +694,32 @@ GITHUB_URL = "https://github.com/kimotostudio/kimotostudiobitcoin"
 
 
 def render_landing_hero():
-    """Hero section for first-time visitors."""
+    """Animated hero section with feature badges."""
     st.markdown("""
-<div style="
-    background: linear-gradient(135deg, #0f1419 0%, #1a3a2e 100%);
-    padding: 2rem;
-    border-radius: 1rem;
-    border: 2px solid #10b981;
-    margin-bottom: 2rem;
-">
-    <h1 style="color: #10b981; margin: 0; font-size: 2rem;">
+<div style="text-align: center; padding: 2rem 0;">
+    <h1 style="font-size: 3rem; margin-bottom: 0.5rem;">
         Bitcoin Bottom Detector
     </h1>
-    <p style="color: #e5e7eb; font-size: 1.1rem; margin: 0.5rem 0 0 0;">
-        プロトレーダー級の6指標で底値を自動検出 | 完全無料 | リアルタイム監視
+    <p style="font-size: 1.15rem; color: #9ca3af; font-weight: 500; margin-bottom: 1.25rem;">
+        KIMOTO STUDIO | 6指標リアルタイム底値検出
     </p>
+    <div style="display: flex; justify-content: center; gap: 0.75rem; flex-wrap: wrap;">
+        <span style="background: rgba(16,185,129,0.15); padding: 0.4rem 1rem; border-radius: 2rem;
+                     font-size: 0.85rem; font-weight: 600; color: #10b981;
+                     border: 1px solid rgba(16,185,129,0.3);">
+            リアルタイム更新
+        </span>
+        <span style="background: rgba(251,191,36,0.15); padding: 0.4rem 1rem; border-radius: 2rem;
+                     font-size: 0.85rem; font-weight: 600; color: #fbbf24;
+                     border: 1px solid rgba(251,191,36,0.3);">
+            6つのプロ指標
+        </span>
+        <span style="background: rgba(59,130,246,0.15); padding: 0.4rem 1rem; border-radius: 2rem;
+                     font-size: 0.85rem; font-weight: 600; color: #3b82f6;
+                     border: 1px solid rgba(59,130,246,0.3);">
+            100% 無料
+        </span>
+    </div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -808,6 +879,199 @@ def render_footer(data_pts: int):
 
 
 # ============================================================================
+# Score Gauge
+# ============================================================================
+
+def render_score_gauge(score: int):
+    """Render visual score gauge with color-coded status."""
+    if score >= SIGNAL_THRESHOLD:
+        color = "#10b981"
+        status = "底値圏"
+        bg = "rgba(16,185,129,0.15)"
+    elif score >= 40:
+        color = "#fbbf24"
+        status = "要注意"
+        bg = "rgba(251,191,36,0.15)"
+    else:
+        color = "#6b7280"
+        status = "監視中"
+        bg = "rgba(107,114,128,0.15)"
+
+    st.markdown(f"""
+<div style="background: {bg}; border: 2px solid {color}; border-radius: 1.5rem;
+            padding: 2rem; text-align: center; margin: 1rem 0;">
+    <div style="font-size: 0.8rem; color: #9ca3af; text-transform: uppercase;
+                letter-spacing: 0.1em; margin-bottom: 0.25rem;">
+        検出スコア
+    </div>
+    <div style="font-size: 3.5rem; font-weight: 800; color: {color};
+                font-family: 'JetBrains Mono', monospace; line-height: 1;">
+        {score}
+    </div>
+    <div style="font-size: 1.25rem; color: #e5e7eb; font-weight: 600; margin-top: 0.25rem;">
+        {status}
+    </div>
+    <div style="margin-top: 1rem;">
+        <div style="width: 100%; height: 10px; background: rgba(255,255,255,0.1);
+                    border-radius: 1rem; overflow: hidden;">
+            <div style="width: {min(score, 100)}%; height: 100%;
+                        background: linear-gradient(90deg, {color}, #fbbf24);
+                        transition: width 1s ease-out;"></div>
+        </div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+
+# ============================================================================
+# Discord Integration UI
+# ============================================================================
+
+def send_discord_test(webhook_url: str) -> bool:
+    """Send test notification to Discord webhook."""
+    try:
+        payload = {
+            "embeds": [{
+                "title": "テスト通知",
+                "description": "Bitcoin Bottom Detector の通知設定が正常に動作しています",
+                "color": 0x10b981,
+                "fields": [{
+                    "name": "現在時刻",
+                    "value": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "inline": False,
+                }],
+                "footer": {"text": "KIMOTO STUDIO | Bitcoin Bottom Detector"},
+                "timestamp": datetime.now().isoformat(),
+            }]
+        }
+        resp = requests.post(webhook_url, json=payload, timeout=10)
+        return resp.status_code in (200, 204)
+    except Exception:
+        return False
+
+
+def send_discord_score_alert(webhook_url: str, score: int, price: float,
+                             indicators: dict) -> bool:
+    """Send bottom signal alert via Discord embed."""
+    try:
+        rsi_val = indicators.get("rsi", 0)
+        bb_w = indicators.get("bb", {}).get("width", 0) * 100
+        macd_bull = indicators.get("macd", {}).get("bullish_cross", False)
+        vol_r = indicators.get("volume", {}).get("ratio", 1.0)
+
+        payload = {
+            "embeds": [{
+                "title": "底値圏シグナル検出!",
+                "description": f"**スコア: {score}/100**\nBTCが底値圏に接近している可能性があります",
+                "color": 0x10b981,
+                "fields": [
+                    {"name": "現在価格", "value": f"¥{price:,.0f}", "inline": True},
+                    {"name": "スコア", "value": f"{score}/100", "inline": True},
+                    {"name": "RSI", "value": f"{rsi_val:.1f}", "inline": True},
+                    {"name": "BB幅", "value": f"{bb_w:.2f}%", "inline": True},
+                    {"name": "MACD", "value": "ブル転換" if macd_bull else "ベア", "inline": True},
+                    {"name": "出来高比", "value": f"{vol_r:.2f}x", "inline": True},
+                ],
+                "footer": {"text": "KIMOTO STUDIO | Bitcoin Bottom Detector"},
+                "timestamp": datetime.now().isoformat(),
+                "url": APP_URL,
+            }]
+        }
+        resp = requests.post(webhook_url, json=payload, timeout=10)
+        if resp.status_code in (200, 204):
+            st.session_state["last_discord_sent"] = datetime.now().strftime(
+                "%Y-%m-%d %H:%M:%S"
+            )
+            return True
+        return False
+    except Exception:
+        return False
+
+
+def render_discord_settings():
+    """Render Discord notification settings in sidebar."""
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### Discord 通知設定")
+
+    if "discord_enabled" not in st.session_state:
+        st.session_state["discord_enabled"] = False
+    if "discord_webhook" not in st.session_state:
+        st.session_state["discord_webhook"] = ""
+    if "discord_threshold" not in st.session_state:
+        st.session_state["discord_threshold"] = 60
+
+    enabled = st.sidebar.checkbox(
+        "通知を有効化",
+        value=st.session_state["discord_enabled"],
+        help="底値シグナル検出時にDiscordに通知します",
+    )
+    st.session_state["discord_enabled"] = enabled
+
+    if enabled:
+        webhook = st.sidebar.text_input(
+            "Webhook URL",
+            value=st.session_state["discord_webhook"],
+            type="password",
+            placeholder="https://discord.com/api/webhooks/...",
+            help="Discord サーバー設定 > 連携サービス > Webhook から取得",
+        )
+        st.session_state["discord_webhook"] = webhook
+
+        threshold = st.sidebar.slider(
+            "通知閾値スコア",
+            min_value=40, max_value=100,
+            value=st.session_state["discord_threshold"],
+            step=5,
+            help="このスコア以上で通知を送信",
+        )
+        st.session_state["discord_threshold"] = threshold
+
+        if st.sidebar.button("テスト送信", use_container_width=True):
+            if webhook:
+                if send_discord_test(webhook):
+                    st.sidebar.success("送信成功!")
+                else:
+                    st.sidebar.error("送信失敗")
+            else:
+                st.sidebar.warning("Webhook URLを入力してください")
+
+        st.sidebar.caption(
+            "[Webhook URLの取得方法]"
+            "(https://support.discord.com/hc/ja/articles/228383668)"
+        )
+
+        last = st.session_state.get("last_discord_sent")
+        if last:
+            st.sidebar.caption(f"最終通知: {last}")
+
+
+def check_and_send_discord(result: dict, price: float):
+    """Check score and send Discord alert if threshold met."""
+    if not st.session_state.get("discord_enabled"):
+        return
+    webhook = st.session_state.get("discord_webhook", "")
+    threshold = st.session_state.get("discord_threshold", 60)
+    if not webhook:
+        return
+
+    score = result.get("score", 0)
+    if score < threshold:
+        return
+
+    # 1-hour cooldown
+    last = st.session_state.get("last_discord_sent", "")
+    if last:
+        try:
+            last_dt = datetime.strptime(last, "%Y-%m-%d %H:%M:%S")
+            if datetime.now() - last_dt < timedelta(hours=1):
+                return
+        except ValueError:
+            pass
+
+    send_discord_score_alert(webhook, score, price, result.get("indicators", {}))
+
+
+# ============================================================================
 # Main
 # ============================================================================
 
@@ -815,6 +1079,7 @@ def main():
     # Sidebar
     render_quick_start()
     render_about_page()
+    render_discord_settings()
     render_stats_badge()
     render_github_link()
 
@@ -863,44 +1128,43 @@ def main():
     result = analyze(df_price)
     score = result["score"]
 
-    # ── KPI Row ──
-    k1, k2, k3 = st.columns(3)
-    with k1:
-        st.metric(
-            "現在価格",
-            f"¥{latest_price:,.0f}",
-            delta=f"{change_pct:+.2f}%" if change_pct is not None else None,
-        )
-    with k2:
-        if score >= SIGNAL_THRESHOLD:
-            tag = "🟢"
-        elif score >= 40:
-            tag = "🟡"
-        else:
-            tag = "⚫"
-        st.metric("検出スコア", f"{tag} {score}/100")
-        st.progress(min(score / 100, 1.0))
-    with k3:
-        st.metric("状態", result["status"])
-        data_pts = len(df_price)
-        st.caption(f"データ点数: {data_pts}")
+    # ── KPI + Score Gauge ──
+    kpi_left, kpi_right = st.columns([2, 1])
 
-    # ── Alert Box ──
-    if result["alert"]:
-        st.markdown(
-            '<div class="signal-box signal-fire">'
-            f'<strong>底値シグナル発火!</strong>  スコア {score}/100  |  '
-            f'¥{latest_price:,.0f}'
-            '</div>',
-            unsafe_allow_html=True,
-        )
-    elif score >= 40:
-        st.markdown(
-            '<div class="signal-box signal-watch">'
-            f'<strong>注目圏</strong>  スコア {score}/100'
-            '</div>',
-            unsafe_allow_html=True,
-        )
+    with kpi_left:
+        k1, k2 = st.columns(2)
+        with k1:
+            st.metric(
+                "現在価格",
+                f"¥{latest_price:,.0f}",
+                delta=f"{change_pct:+.2f}%" if change_pct is not None else None,
+            )
+        with k2:
+            st.metric("状態", result["status"])
+            st.caption(f"データ点数: {len(df_price)}")
+
+        # Alert Box
+        if result["alert"]:
+            st.markdown(
+                '<div class="signal-box signal-fire">'
+                f'<strong>底値シグナル発火!</strong>  スコア {score}/100  |  '
+                f'¥{latest_price:,.0f}'
+                '</div>',
+                unsafe_allow_html=True,
+            )
+        elif score >= 40:
+            st.markdown(
+                '<div class="signal-box signal-watch">'
+                f'<strong>注目圏</strong>  スコア {score}/100'
+                '</div>',
+                unsafe_allow_html=True,
+            )
+
+    with kpi_right:
+        render_score_gauge(score)
+
+    # Discord auto-alert
+    check_and_send_discord(result, latest_price)
 
     # ── System Stats ──
     render_system_stats(df_price)
