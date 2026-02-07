@@ -701,13 +701,13 @@ def render_landing_hero():
         Bitcoin Bottom Detector
     </h1>
     <p style="font-size: 1.15rem; color: #9ca3af; font-weight: 500; margin-bottom: 1.25rem;">
-        KIMOTO STUDIO | 6指標リアルタイム底値検出
+        KIMOTO STUDIO | 6指標リアルタイム底値検出 - <strong style="color: #10b981;">Discord自動通知対応</strong>
     </p>
     <div style="display: flex; justify-content: center; gap: 0.75rem; flex-wrap: wrap;">
         <span style="background: rgba(16,185,129,0.15); padding: 0.4rem 1rem; border-radius: 2rem;
                      font-size: 0.85rem; font-weight: 600; color: #10b981;
                      border: 1px solid rgba(16,185,129,0.3);">
-            リアルタイム更新
+            Discord 自動通知
         </span>
         <span style="background: rgba(251,191,36,0.15); padding: 0.4rem 1rem; border-radius: 2rem;
                      font-size: 0.85rem; font-weight: 600; color: #fbbf24;
@@ -927,8 +927,8 @@ def render_score_gauge(score: int):
 # Discord Integration UI
 # ============================================================================
 
-def send_discord_test(webhook_url: str) -> bool:
-    """Send test notification to Discord webhook."""
+def send_discord_test(webhook_url: str) -> tuple[bool, str]:
+    """Send test notification to Discord webhook. Returns (success, message)."""
     try:
         payload = {
             "embeds": [{
@@ -945,9 +945,15 @@ def send_discord_test(webhook_url: str) -> bool:
             }]
         }
         resp = requests.post(webhook_url, json=payload, timeout=10)
-        return resp.status_code in (200, 204)
-    except Exception:
-        return False
+        if resp.status_code in (200, 204):
+            return True, "送信成功!"
+        return False, f"送信失敗 (HTTP {resp.status_code})"
+    except requests.exceptions.Timeout:
+        return False, "タイムアウト (10秒)"
+    except requests.exceptions.ConnectionError:
+        return False, "接続エラー: URLを確認してください"
+    except Exception as e:
+        return False, f"エラー: {e}"
 
 
 def send_discord_score_alert(webhook_url: str, score: int, price: float,
@@ -988,11 +994,17 @@ def send_discord_score_alert(webhook_url: str, score: int, price: float,
         return False
 
 
-def render_discord_settings():
-    """Render Discord notification settings in sidebar."""
-    st.sidebar.markdown("---")
-    st.sidebar.markdown("### Discord 通知設定")
+def _is_valid_webhook(url: str) -> bool:
+    """Check if URL is a valid Discord webhook URL."""
+    return url.startswith("https://discord.com/api/webhooks/")
 
+
+def render_discord_notification_panel():
+    """Render PROMINENT Discord notification panel in main content area."""
+    st.markdown("## Discord 自動通知設定")
+    st.markdown("**底値シグナル検出時に自動でDiscordに通知します**")
+
+    # Initialize session state
     if "discord_enabled" not in st.session_state:
         st.session_state["discord_enabled"] = False
     if "discord_webhook" not in st.session_state:
@@ -1000,49 +1012,151 @@ def render_discord_settings():
     if "discord_threshold" not in st.session_state:
         st.session_state["discord_threshold"] = 60
 
-    enabled = st.sidebar.checkbox(
-        "通知を有効化",
-        value=st.session_state["discord_enabled"],
-        help="底値シグナル検出時にDiscordに通知します",
-    )
-    st.session_state["discord_enabled"] = enabled
+    # Gradient container
+    st.markdown("""
+<div style="
+    background: linear-gradient(135deg, rgba(16,185,129,0.1), rgba(251,191,36,0.1));
+    border: 2px solid rgba(16,185,129,0.3);
+    border-radius: 1rem;
+    padding: 0.25rem;
+    margin: 0.5rem 0 1.5rem 0;
+"></div>
+""", unsafe_allow_html=True)
+
+    # Enable toggle + status
+    col_toggle, col_status = st.columns([3, 1])
+    with col_toggle:
+        enabled = st.checkbox(
+            "Discord 自動通知を有効化",
+            value=st.session_state["discord_enabled"],
+            help="底値シグナル検出時にDiscordに通知します",
+        )
+        st.session_state["discord_enabled"] = enabled
+    with col_status:
+        if enabled:
+            st.success("有効")
+        else:
+            st.error("無効")
 
     if enabled:
-        webhook = st.sidebar.text_input(
-            "Webhook URL",
-            value=st.session_state["discord_webhook"],
-            type="password",
-            placeholder="https://discord.com/api/webhooks/...",
-            help="Discord サーバー設定 > 連携サービス > Webhook から取得",
-        )
-        st.session_state["discord_webhook"] = webhook
+        st.markdown("---")
 
-        threshold = st.sidebar.slider(
-            "通知閾値スコア",
-            min_value=40, max_value=100,
-            value=st.session_state["discord_threshold"],
-            step=5,
-            help="このスコア以上で通知を送信",
-        )
-        st.session_state["discord_threshold"] = threshold
-
-        if st.sidebar.button("テスト送信", use_container_width=True):
-            if webhook:
-                if send_discord_test(webhook):
-                    st.sidebar.success("送信成功!")
-                else:
-                    st.sidebar.error("送信失敗")
+        # Step 1: Webhook URL
+        st.markdown("### 1. Discord Webhook URL を設定")
+        col_url, col_url_status = st.columns([3, 1])
+        with col_url:
+            webhook = st.text_input(
+                "Webhook URL",
+                value=st.session_state["discord_webhook"],
+                type="password",
+                placeholder="https://discord.com/api/webhooks/...",
+                help="Discord サーバーの Webhook URL を入力",
+                label_visibility="collapsed",
+            )
+            st.session_state["discord_webhook"] = webhook
+        with col_url_status:
+            webhook_valid = True
+            if webhook and _is_valid_webhook(webhook):
+                st.success("URL 有効")
+            elif webhook:
+                st.error("URL 無効")
+                webhook_valid = False
             else:
-                st.sidebar.warning("Webhook URLを入力してください")
+                st.warning("未設定")
 
-        st.sidebar.caption(
-            "[Webhook URLの取得方法]"
-            "(https://support.discord.com/hc/ja/articles/228383668)"
-        )
+        # Help expander
+        with st.expander("Webhook URL の取得方法"):
+            st.markdown("""
+**Discord Webhook URL の取得手順:**
 
-        last = st.session_state.get("last_discord_sent")
-        if last:
-            st.sidebar.caption(f"最終通知: {last}")
+1. Discord サーバーを開く
+2. **サーバー設定** > **連携サービス** をクリック
+3. **ウェブフック** > **新しいウェブフック** をクリック
+4. ウェブフックの名前を入力（例: `Bitcoin Bot`）
+5. 通知を送りたいチャンネルを選択
+6. **ウェブフック URL をコピー** をクリック
+7. 上記の入力欄に貼り付け
+
+[公式ガイドはこちら](https://support.discord.com/hc/ja/articles/228383668)
+""")
+
+        st.markdown("---")
+
+        # Step 2: Threshold
+        st.markdown("### 2. 通知する閾値を設定")
+        col_slider, col_thresh_info = st.columns([3, 1])
+        with col_slider:
+            threshold = st.slider(
+                "検出スコアがこの値以上になったら通知",
+                min_value=40, max_value=100,
+                value=st.session_state["discord_threshold"],
+                step=5,
+                help="スコアが高いほど底値圏の確率が高い（推奨: 60点以上）",
+                label_visibility="collapsed",
+            )
+            st.session_state["discord_threshold"] = threshold
+        with col_thresh_info:
+            if threshold >= 70:
+                st.success(f"{threshold} 点")
+            elif threshold >= 60:
+                st.warning(f"{threshold} 点")
+            else:
+                st.info(f"{threshold} 点")
+
+        st.caption(f"現在の設定: スコア **{threshold}点以上** で通知（1時間に1回まで）")
+
+        st.markdown("---")
+
+        # Step 3: Test + Status
+        st.markdown("### 3. テスト通知を送信")
+        col_test, col_last, col_cd = st.columns(3)
+
+        with col_test:
+            if st.button("テスト通知を送信", use_container_width=True, type="primary"):
+                if not webhook:
+                    st.warning("Webhook URL を入力してください")
+                elif not webhook_valid:
+                    st.error("正しい Webhook URL を入力してください")
+                else:
+                    with st.spinner("送信中..."):
+                        ok, msg = send_discord_test(webhook)
+                    if ok:
+                        st.success(msg)
+                        st.session_state["last_discord_sent"] = datetime.now().strftime(
+                            "%Y-%m-%d %H:%M:%S"
+                        )
+                    else:
+                        st.error(msg)
+
+        with col_last:
+            last_sent = st.session_state.get("last_discord_sent", "未送信")
+            st.metric("最終通知", last_sent)
+
+        with col_cd:
+            cd_text = "通知可能"
+            last = st.session_state.get("last_discord_sent")
+            if last and last != "未送信":
+                try:
+                    last_dt = datetime.strptime(last, "%Y-%m-%d %H:%M:%S")
+                    remaining = timedelta(hours=1) - (datetime.now() - last_dt)
+                    if remaining.total_seconds() > 0:
+                        cd_text = f"{int(remaining.total_seconds() // 60)}分後に可能"
+                except ValueError:
+                    pass
+            st.metric("次回通知", cd_text)
+
+    else:
+        # Call-to-action when disabled
+        st.info("""
+### Discord 自動通知を有効にしましょう
+
+**このアプリの最大の価値は、底値シグナルを自動で通知すること。**
+
+チャートを24時間監視する必要はありません。
+底値圏に接近したら、あなたの Discord に自動で通知が届きます。
+
+上のチェックボックスをオンにして設定を開始してください。
+""")
 
 
 def check_and_send_discord(result: dict, price: float):
@@ -1051,7 +1165,7 @@ def check_and_send_discord(result: dict, price: float):
         return
     webhook = st.session_state.get("discord_webhook", "")
     threshold = st.session_state.get("discord_threshold", 60)
-    if not webhook:
+    if not webhook or not _is_valid_webhook(webhook):
         return
 
     score = result.get("score", 0)
@@ -1079,12 +1193,19 @@ def main():
     # Sidebar
     render_quick_start()
     render_about_page()
-    render_discord_settings()
     render_stats_badge()
     render_github_link()
 
     # Hero
     render_landing_hero()
+
+    # ========================================
+    # DISCORD NOTIFICATION PANEL (PRIMARY FEATURE)
+    # Placed FIRST after hero - main value proposition
+    # ========================================
+    render_discord_notification_panel()
+
+    st.markdown("---")
 
     # Check DB
     try:
