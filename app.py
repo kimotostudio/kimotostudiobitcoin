@@ -701,18 +701,18 @@ def render_landing_hero():
         Bitcoin Bottom Detector
     </h1>
     <p style="font-size: 1.15rem; color: #9ca3af; font-weight: 500; margin-bottom: 1.25rem;">
-        KIMOTO STUDIO | 6指標リアルタイム底値検出 - <strong style="color: #10b981;">Discord自動通知対応</strong>
+        KIMOTO STUDIO | リアルタイム底値検出システム
     </p>
     <div style="display: flex; justify-content: center; gap: 0.75rem; flex-wrap: wrap;">
         <span style="background: rgba(16,185,129,0.15); padding: 0.4rem 1rem; border-radius: 2rem;
                      font-size: 0.85rem; font-weight: 600; color: #10b981;
                      border: 1px solid rgba(16,185,129,0.3);">
-            Discord 自動通知
+            リアルタイム更新
         </span>
         <span style="background: rgba(251,191,36,0.15); padding: 0.4rem 1rem; border-radius: 2rem;
                      font-size: 0.85rem; font-weight: 600; color: #fbbf24;
                      border: 1px solid rgba(251,191,36,0.3);">
-            6つのプロ指標
+            6つの指標
         </span>
         <span style="background: rgba(59,130,246,0.15); padding: 0.4rem 1rem; border-radius: 2rem;
                      font-size: 0.85rem; font-weight: 600; color: #3b82f6;
@@ -933,20 +933,19 @@ def send_discord_test(webhook_url: str) -> tuple[bool, str]:
         payload = {
             "embeds": [{
                 "title": "テスト通知",
-                "description": "Bitcoin Bottom Detector の通知設定が正常に動作しています",
+                "description": "通知設定が正しく動作しています",
                 "color": 0x10b981,
                 "fields": [{
-                    "name": "現在時刻",
-                    "value": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "name": "時刻",
+                    "value": datetime.now().strftime("%Y年%m月%d日 %H:%M"),
                     "inline": False,
                 }],
-                "footer": {"text": "KIMOTO STUDIO | Bitcoin Bottom Detector"},
-                "timestamp": datetime.now().isoformat(),
+                "footer": {"text": "Bitcoin Bottom Detector"},
             }]
         }
         resp = requests.post(webhook_url, json=payload, timeout=10)
         if resp.status_code in (200, 204):
-            return True, "送信成功!"
+            return True, "送信できました! Discordを確認してください"
         return False, f"送信失敗 (HTTP {resp.status_code})"
     except requests.exceptions.Timeout:
         return False, "タイムアウト (10秒)"
@@ -962,23 +961,29 @@ def send_discord_score_alert(webhook_url: str, score: int, price: float,
     try:
         rsi_val = indicators.get("rsi", 0)
         bb_w = indicators.get("bb", {}).get("width", 0) * 100
-        macd_bull = indicators.get("macd", {}).get("bullish_cross", False)
         vol_r = indicators.get("volume", {}).get("ratio", 1.0)
+
+        if score >= 70:
+            color = 0x10b981
+            level = "強いシグナル"
+        elif score >= 60:
+            color = 0xfbbf24
+            level = "中程度のシグナル"
+        else:
+            color = 0x9ca3af
+            level = "弱いシグナル"
 
         payload = {
             "embeds": [{
-                "title": "底値圏シグナル検出!",
-                "description": f"**スコア: {score}/100**\nBTCが底値圏に接近している可能性があります",
-                "color": 0x10b981,
+                "title": "底値シグナル検出",
+                "description": f"スコア: **{score}点** ({level})",
+                "color": color,
                 "fields": [
                     {"name": "現在価格", "value": f"¥{price:,.0f}", "inline": True},
                     {"name": "スコア", "value": f"{score}/100", "inline": True},
                     {"name": "RSI", "value": f"{rsi_val:.1f}", "inline": True},
-                    {"name": "BB幅", "value": f"{bb_w:.2f}%", "inline": True},
-                    {"name": "MACD", "value": "ブル転換" if macd_bull else "ベア", "inline": True},
-                    {"name": "出来高比", "value": f"{vol_r:.2f}x", "inline": True},
                 ],
-                "footer": {"text": "KIMOTO STUDIO | Bitcoin Bottom Detector"},
+                "footer": {"text": "Bitcoin Bottom Detector"},
                 "timestamp": datetime.now().isoformat(),
                 "url": APP_URL,
             }]
@@ -986,7 +991,7 @@ def send_discord_score_alert(webhook_url: str, score: int, price: float,
         resp = requests.post(webhook_url, json=payload, timeout=10)
         if resp.status_code in (200, 204):
             st.session_state["last_discord_sent"] = datetime.now().strftime(
-                "%Y-%m-%d %H:%M:%S"
+                "%m/%d %H:%M"
             )
             return True
         return False
@@ -1000,9 +1005,10 @@ def _is_valid_webhook(url: str) -> bool:
 
 
 def render_discord_notification_panel():
-    """Render PROMINENT Discord notification panel in main content area."""
-    st.markdown("## Discord 自動通知設定")
-    st.markdown("**底値シグナル検出時に自動でDiscordに通知します**")
+    """Discord notification panel - simple and friendly."""
+    st.markdown("## Discord 通知")
+    st.markdown("底値の可能性が高いシグナルを検知したら、Discordに通知を送ります。  \n"
+                "設定は3ステップで完了します。")
 
     # Initialize session state
     if "discord_enabled" not in st.session_state:
@@ -1012,150 +1018,107 @@ def render_discord_notification_panel():
     if "discord_threshold" not in st.session_state:
         st.session_state["discord_threshold"] = 60
 
-    # Gradient container
+    # Container
     st.markdown("""
 <div style="
-    background: linear-gradient(135deg, rgba(16,185,129,0.1), rgba(251,191,36,0.1));
-    border: 2px solid rgba(16,185,129,0.3);
+    background: rgba(26,29,35,0.6);
+    border: 1px solid rgba(16,185,129,0.3);
     border-radius: 1rem;
     padding: 0.25rem;
     margin: 0.5rem 0 1.5rem 0;
 "></div>
 """, unsafe_allow_html=True)
 
-    # Enable toggle + status
-    col_toggle, col_status = st.columns([3, 1])
-    with col_toggle:
-        enabled = st.checkbox(
-            "Discord 自動通知を有効化",
-            value=st.session_state["discord_enabled"],
-            help="底値シグナル検出時にDiscordに通知します",
-        )
-        st.session_state["discord_enabled"] = enabled
-    with col_status:
-        if enabled:
-            st.success("有効")
-        else:
-            st.error("無効")
+    enabled = st.checkbox(
+        "通知を使う",
+        value=st.session_state["discord_enabled"],
+        help="チェックを入れると通知機能が有効になります",
+    )
+    st.session_state["discord_enabled"] = enabled
 
     if enabled:
         st.markdown("---")
 
         # Step 1: Webhook URL
-        st.markdown("### 1. Discord Webhook URL を設定")
-        col_url, col_url_status = st.columns([3, 1])
-        with col_url:
-            webhook = st.text_input(
-                "Webhook URL",
-                value=st.session_state["discord_webhook"],
-                type="password",
-                placeholder="https://discord.com/api/webhooks/...",
-                help="Discord サーバーの Webhook URL を入力",
-                label_visibility="collapsed",
-            )
-            st.session_state["discord_webhook"] = webhook
-        with col_url_status:
-            webhook_valid = True
-            if webhook and _is_valid_webhook(webhook):
-                st.success("URL 有効")
-            elif webhook:
-                st.error("URL 無効")
-                webhook_valid = False
-            else:
-                st.warning("未設定")
+        st.markdown("**1. Discord Webhook URL を入力**")
+        webhook = st.text_input(
+            "Webhook URL",
+            value=st.session_state["discord_webhook"],
+            placeholder="https://discord.com/api/webhooks/123456789/abcdefg...",
+            help="Discord サーバーの Webhook URL を貼り付けてください",
+            label_visibility="collapsed",
+        )
+        st.session_state["discord_webhook"] = webhook
 
-        # Help expander
+        webhook_valid = True
+        if webhook and not _is_valid_webhook(webhook):
+            st.warning("URLの形式が違います")
+            webhook_valid = False
+
         with st.expander("Webhook URL の取得方法"):
             st.markdown("""
-**Discord Webhook URL の取得手順:**
+**5ステップで取得:**
 
 1. Discord サーバーを開く
-2. **サーバー設定** > **連携サービス** をクリック
-3. **ウェブフック** > **新しいウェブフック** をクリック
-4. ウェブフックの名前を入力（例: `Bitcoin Bot`）
-5. 通知を送りたいチャンネルを選択
-6. **ウェブフック URL をコピー** をクリック
-7. 上記の入力欄に貼り付け
+2. 設定 > 連携サービス > ウェブフック
+3. 「新しいウェブフック」をクリック
+4. 名前を入力して、通知を送りたいチャンネルを選択
+5. 「ウェブフック URL をコピー」して、上に貼り付け
 
-[公式ガイドはこちら](https://support.discord.com/hc/ja/articles/228383668)
+[画像付きガイド](https://support.discord.com/hc/ja/articles/228383668)
 """)
 
         st.markdown("---")
 
         # Step 2: Threshold
-        st.markdown("### 2. 通知する閾値を設定")
-        col_slider, col_thresh_info = st.columns([3, 1])
-        with col_slider:
-            threshold = st.slider(
-                "検出スコアがこの値以上になったら通知",
-                min_value=40, max_value=100,
-                value=st.session_state["discord_threshold"],
-                step=5,
-                help="スコアが高いほど底値圏の確率が高い（推奨: 60点以上）",
-                label_visibility="collapsed",
-            )
-            st.session_state["discord_threshold"] = threshold
-        with col_thresh_info:
-            if threshold >= 70:
-                st.success(f"{threshold} 点")
-            elif threshold >= 60:
-                st.warning(f"{threshold} 点")
-            else:
-                st.info(f"{threshold} 点")
-
-        st.caption(f"現在の設定: スコア **{threshold}点以上** で通知（1時間に1回まで）")
+        st.markdown("**2. いつ通知するか設定**")
+        threshold = st.slider(
+            "スコアがこの値を超えたら通知",
+            min_value=40, max_value=100,
+            value=st.session_state["discord_threshold"],
+            step=5,
+            help="60点以上がおすすめ（高いほど確率が高い）",
+            label_visibility="collapsed",
+        )
+        st.session_state["discord_threshold"] = threshold
+        st.caption(f"現在の設定: **{threshold}点以上**で通知（同じシグナルは1時間に1回まで）")
 
         st.markdown("---")
 
-        # Step 3: Test + Status
-        st.markdown("### 3. テスト通知を送信")
-        col_test, col_last, col_cd = st.columns(3)
+        # Step 3: Test
+        st.markdown("**3. テストしてみる**")
+        col_btn, col_result = st.columns([1, 2])
 
-        with col_test:
-            if st.button("テスト通知を送信", use_container_width=True, type="primary"):
+        with col_btn:
+            test_clicked = st.button("テスト通知", use_container_width=True, type="primary")
+
+        with col_result:
+            if test_clicked:
                 if not webhook:
-                    st.warning("Webhook URL を入力してください")
+                    st.warning("URL を入力してください")
                 elif not webhook_valid:
-                    st.error("正しい Webhook URL を入力してください")
+                    st.error("URL の形式が違います")
                 else:
                     with st.spinner("送信中..."):
                         ok, msg = send_discord_test(webhook)
                     if ok:
                         st.success(msg)
                         st.session_state["last_discord_sent"] = datetime.now().strftime(
-                            "%Y-%m-%d %H:%M:%S"
+                            "%m/%d %H:%M"
                         )
                     else:
                         st.error(msg)
 
-        with col_last:
-            last_sent = st.session_state.get("last_discord_sent", "未送信")
-            st.metric("最終通知", last_sent)
-
-        with col_cd:
-            cd_text = "通知可能"
-            last = st.session_state.get("last_discord_sent")
-            if last and last != "未送信":
-                try:
-                    last_dt = datetime.strptime(last, "%Y-%m-%d %H:%M:%S")
-                    remaining = timedelta(hours=1) - (datetime.now() - last_dt)
-                    if remaining.total_seconds() > 0:
-                        cd_text = f"{int(remaining.total_seconds() // 60)}分後に可能"
-                except ValueError:
-                    pass
-            st.metric("次回通知", cd_text)
+        st.markdown("---")
+        last_sent = st.session_state.get("last_discord_sent", "まだ通知なし")
+        st.caption(f"最後の通知: {last_sent}")
 
     else:
-        # Call-to-action when disabled
         st.info("""
-### Discord 自動通知を有効にしましょう
+**通知を使うには**
 
-**このアプリの最大の価値は、底値シグナルを自動で通知すること。**
-
-チャートを24時間監視する必要はありません。
-底値圏に接近したら、あなたの Discord に自動で通知が届きます。
-
-上のチェックボックスをオンにして設定を開始してください。
+上の「通知を使う」にチェックを入れてください。
+設定は3分で完了します。
 """)
 
 
@@ -1172,17 +1135,15 @@ def check_and_send_discord(result: dict, price: float):
     if score < threshold:
         return
 
-    # 1-hour cooldown
-    last = st.session_state.get("last_discord_sent", "")
-    if last:
-        try:
-            last_dt = datetime.strptime(last, "%Y-%m-%d %H:%M:%S")
-            if datetime.now() - last_dt < timedelta(hours=1):
-                return
-        except ValueError:
-            pass
+    # 1-hour cooldown using datetime object
+    last_time = st.session_state.get("_discord_sent_dt")
+    if last_time and isinstance(last_time, datetime):
+        if datetime.now() - last_time < timedelta(hours=1):
+            return
 
-    send_discord_score_alert(webhook, score, price, result.get("indicators", {}))
+    ok = send_discord_score_alert(webhook, score, price, result.get("indicators", {}))
+    if ok:
+        st.session_state["_discord_sent_dt"] = datetime.now()
 
 
 # ============================================================================
