@@ -617,10 +617,86 @@ def signal_panel(signals: dict, score: int):
 
 
 # ============================================================================
+# About / Footer
+# ============================================================================
+
+APP_URL = "https://kimotostudiobitcoin-5hsuskqwxuu4affhtp2eg9.streamlit.app"
+
+
+def render_about_page():
+    """Render about/info page in sidebar."""
+    st.sidebar.markdown("---")
+    st.sidebar.header("About")
+
+    st.sidebar.markdown("""
+**Bitcoin Bottom Detector** は、プロトレーダー級のテクニカル指標を使い、
+ビットコインの底値圏を自動検出するツールです。
+
+**特徴:**
+- 6つの指標（RSI/BB/MACD/Volume/Stability）
+- リアルタイム監視
+- 1週間先の価格予測
+- 完全無料
+
+**作者:** [KIMOTO STUDIO](https://github.com/kimotostudio)
+
+**免責事項:**
+本ツールは情報提供のみを目的としています。
+投資判断は自己責任で行ってください。
+""")
+
+    tweet_text = "Bitcoin Bottom Detectorで底値を逃さない！ 6指標リアルタイム監視 + 1週間先予測"
+    twitter_url = f"https://twitter.com/intent/tweet?text={tweet_text}&url={APP_URL}"
+
+    st.sidebar.markdown(f"""
+<a href="{twitter_url}" target="_blank" style="
+    display: inline-block;
+    background-color: #1DA1F2;
+    color: white;
+    padding: 8px 16px;
+    border-radius: 20px;
+    text-decoration: none;
+    font-weight: 600;
+    margin-top: 10px;
+">
+    Share on X
+</a>
+""", unsafe_allow_html=True)
+
+
+def render_footer(data_pts: int):
+    """Render footer with credits."""
+    st.markdown("---")
+    st.markdown(f"""
+<div style="text-align: center; color: #6b7280; font-size: 0.875rem;">
+    <p>
+        Made with ♥ by
+        <a href="https://github.com/kimotostudio" target="_blank"
+           style="color: #10b981;">KIMOTO STUDIO</a>
+        | Data:
+        <a href="https://bitflyer.com" target="_blank"
+           style="color: #8b949e;">bitFlyer</a>
+        | Hosting:
+        <a href="https://streamlit.io" target="_blank"
+           style="color: #8b949e;">Streamlit</a>
+    </p>
+    <p style="margin-top: 8px; font-size: 0.75rem;">
+        投資判断は自己責任で行ってください
+        | {data_pts} pts
+        | {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+    </p>
+</div>
+""", unsafe_allow_html=True)
+
+
+# ============================================================================
 # Main
 # ============================================================================
 
 def main():
+    # Sidebar
+    render_about_page()
+
     # Header
     c1, c2 = st.columns([4, 1])
     with c1:
@@ -805,33 +881,8 @@ def main():
         st.subheader("シグナル一覧")
         signal_panel(result["signals"], score)
 
-    st.markdown("---")
-
     # ── Footer ──
-    with st.expander("ℹ このシステムについて"):
-        st.markdown("""
-**Bitcoin Bottom Detector** は6つのテクニカル指標を自動計算し、
-BTC/JPY の底値圏を検出するパッシブモニタリングシステムです。
-
-| 指標 | 重み |
-|------|------|
-| RSI 売られすぎ | 25pt |
-| RSI 回復傾向 | 15pt |
-| BB 収縮 | 20pt |
-| MACD ブル転換 | 20pt |
-| 出来高 増加 | 10pt |
-| 価格 安定 | 10pt |
-
-**閾値:** 60/100 でシグナル発火
-
-**免責:** 本システムは情報提供目的であり投資助言ではありません。
-投資判断は自己責任で行ってください。
-""")
-
-    st.caption(
-        f"₿ KIMOTO STUDIO  |  データ: {len(df_price)} 点  |  "
-        f"更新: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-    )
+    render_footer(len(df_price))
 
     # Auto-refresh
     time.sleep(60)
