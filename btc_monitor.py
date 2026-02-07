@@ -39,6 +39,13 @@ CHECK_INTERVAL = 60  # seconds
 HISTORY_HOURS = 48   # hours of history to keep
 DB_PATH = 'btc_history.db'
 
+
+def to_native(value):
+    """Convert numpy scalar to native Python type for DB drivers."""
+    if isinstance(value, np.generic):
+        return value.item()
+    return value
+
 # Indicator thresholds
 RSI_OVERSOLD = 35           # RSI < 35 = oversold
 RSI_NEUTRAL = 50            # RSI approaching 50 = recovery
@@ -178,7 +185,11 @@ def save_price(timestamp: int, price: float, volume: float = 0):
                     VALUES (:timestamp, :price, :volume)
                     ON CONFLICT (timestamp) DO NOTHING
                 '''),
-                {'timestamp': timestamp, 'price': price, 'volume': volume}
+                {
+                    'timestamp': to_native(timestamp),
+                    'price': to_native(price),
+                    'volume': to_native(volume),
+                }
             )
         return
 
@@ -220,15 +231,15 @@ def save_snapshot(timestamp: int, price: float, volume: float, result: Dict):
                     ON CONFLICT (timestamp) DO NOTHING
                 '''),
                 {
-                    'timestamp': timestamp,
-                    'price': price,
-                    'volume': volume,
-                    'score': score,
-                    'rsi': rsi,
-                    'bb_width': bb_width,
-                    'macd_hist': macd_hist,
-                    'volume_ratio': volume_ratio,
-                    'range_ratio': range_ratio,
+                    'timestamp': to_native(timestamp),
+                    'price': to_native(price),
+                    'volume': to_native(volume),
+                    'score': to_native(score),
+                    'rsi': to_native(rsi),
+                    'bb_width': to_native(bb_width),
+                    'macd_hist': to_native(macd_hist),
+                    'volume_ratio': to_native(volume_ratio),
+                    'range_ratio': to_native(range_ratio),
                 }
             )
         return
