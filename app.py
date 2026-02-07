@@ -926,6 +926,10 @@ def main():
 
     df_price_full = load_price_history(None)
     df_snap_full = load_snapshot_history(None)
+    st.write("DEBUG len(df):", len(df_price_full))
+    if len(df_price_full) > 0:
+        st.write("DEBUG min:", df_price_full.index.min())
+        st.write("DEBUG max:", df_price_full.index.max())
 
     df_price_view = df_price_full
     df_snap_view = df_snap_full
