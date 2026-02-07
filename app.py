@@ -813,25 +813,33 @@ def render_footer(data_pts: int):
 
 def main():
     # Sidebar
+    render_quick_start()
     render_about_page()
+    render_stats_badge()
+    render_github_link()
 
-    # Header
-    c1, c2 = st.columns([4, 1])
-    with c1:
-        st.title("₿ Bitcoin Bottom Detector")
-        st.caption("KIMOTO STUDIO  |  6指標リアルタイム底値検出")
-    with c2:
-        st.metric("更新", datetime.now().strftime("%H:%M:%S"))
+    # Hero
+    render_landing_hero()
 
     # Check DB
-    engine = get_engine()
+    try:
+        engine = get_engine()
+    except Exception as e:
+        st.error(f"データベース接続エラー: {e}\n\n"
+                 f"[GitHub Issues]({GITHUB_URL}/issues) で報告してください。")
+        st.stop()
+
     if engine is None:
         st.error("DATABASE_URL が未設定です。Streamlit Secrets または環境変数に設定してください。")
         st.stop()
 
     # Load data
-    df_price = load_price_history(24)
-    df_snap = load_snapshot_history(24)
+    try:
+        df_price = load_price_history(24)
+        df_snap = load_snapshot_history(24)
+    except Exception as e:
+        st.error(f"データ取得エラー: {e}\n\nしばらく待ってから再度アクセスしてください。")
+        st.stop()
 
     if len(df_price) == 0 and len(df_snap) == 0:
         st.warning("データがまだありません。VPS の btc_monitor.py がデータを蓄積中です。")
@@ -893,6 +901,9 @@ def main():
             '</div>',
             unsafe_allow_html=True,
         )
+
+    # ── System Stats ──
+    render_system_stats(df_price)
 
     st.markdown("---")
 
