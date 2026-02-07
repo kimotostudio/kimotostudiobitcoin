@@ -7,7 +7,8 @@ import requests
 from sqlalchemy import create_engine, text
 
 
-API_URL = "https://min-api.cryptocompare.com/data/v2/histoday"
+API_URL_HISTODAY = "https://min-api.cryptocompare.com/data/v2/histoday"
+API_URL_HISTOHOUR = "https://min-api.cryptocompare.com/data/v2/histohour"
 
 
 def normalize_url(url: str) -> str:
@@ -23,7 +24,22 @@ def fetch_histoday(days: int = 365) -> list[dict]:
         "limit": days,
         "toTs": int(time.time()),
     }
-    resp = requests.get(API_URL, params=params, timeout=30)
+    resp = requests.get(API_URL_HISTODAY, params=params, timeout=30)
+    resp.raise_for_status()
+    data = resp.json()
+    if data.get("Response") != "Success":
+        raise RuntimeError(data.get("Message", "API error"))
+    return data["Data"]["Data"]
+
+
+def fetch_histohour(hours: int = 336) -> list[dict]:
+    params = {
+        "fsym": "BTC",
+        "tsym": "JPY",
+        "limit": hours,
+        "toTs": int(time.time()),
+    }
+    resp = requests.get(API_URL_HISTOHOUR, params=params, timeout=30)
     resp.raise_for_status()
     data = resp.json()
     if data.get("Response") != "Success":
@@ -108,11 +124,16 @@ def main() -> int:
     url = normalize_url(url)
     engine = create_engine(url, pool_pre_ping=True)
 
-    rows = fetch_histoday(365)
-    print(f"[BACKFILL] fetched={len(rows)} rows")
+    daily_rows = fetch_histoday(365)
+    print(f"[BACKFILL] histoday fetched={len(daily_rows)} rows")
+    inserted_daily = insert_rows(engine, daily_rows)
 
-    inserted = insert_rows(engine, rows)
-    print(f"[DONE] inserted={inserted}")
+    hourly_rows = fetch_histohour(336)
+    print(f"[BACKFILL] histohour fetched={len(hourly_rows)} rows")
+    inserted_hourly = insert_rows(engine, hourly_rows)
+
+    total = inserted_daily + inserted_hourly
+    print(f"[DONE] inserted_daily={inserted_daily} inserted_hourly={inserted_hourly} total={total}")
     return 0
 
 
