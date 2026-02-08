@@ -22,7 +22,7 @@ from sklearn.linear_model import LinearRegression
 QUERY_LIMIT = 50000
 DEFAULT_VIEW_DAYS = 14
 TIMEFRAME_OPTIONS = {"24h": 1, "1w": 7, "2w": 14, "1m": 30, "3m": 90, "6m": 180, "1y": 365, "5y": 1825}
-PREDICTION_HOURS = {"24h": 24, "1w": 72, "2w": 168, "1m": 168, "3m": 168, "6m": 168, "1y": 168, "5y": 168}
+PREDICTION_HOURS = {"24h": 24, "1w": 72, "2w": 336, "1m": 168, "3m": 168, "6m": 168, "1y": 168, "5y": 168}
 
 # Import core indicator functions from btc_monitor (same repo)
 try:
@@ -1510,6 +1510,7 @@ def main():
 
     now_ts = pd.Timestamp.utcnow().tz_localize(None)
     cutoff_dt = now_ts - pd.Timedelta(days=view_days)
+    view_end = now_ts + pd.Timedelta(hours=prediction_hours)
     if len(df_price_full) > 0 and getattr(df_price_full.index, "tz", None) is not None:
         df_price_full.index = df_price_full.index.tz_convert("UTC").tz_localize(None)
     if len(df_snap_full) > 0 and getattr(df_snap_full.index, "tz", None) is not None:
@@ -1531,7 +1532,7 @@ def main():
         prediction_df,
         chart_title,
         active_tf,
-        view_range=(cutoff_dt, now_ts),
+        view_range=(cutoff_dt, view_end),
     )
 
     if len(prediction_df) > 0 and len(df_price_view) > 0:
