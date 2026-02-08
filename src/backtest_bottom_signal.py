@@ -20,6 +20,7 @@ from typing import Mapping
 
 import numpy as np
 import pandas as pd
+import plotly.graph_objects as go
 
 DEFAULT_HORIZONS: dict[str, pd.Timedelta] = {
     "6h": pd.Timedelta(hours=6),
@@ -32,6 +33,7 @@ DEFAULT_HORIZONS: dict[str, pd.Timedelta] = {
 DEFAULT_INPUT_CSV = Path("output") / "btc_price_features_log.csv"
 DEFAULT_EVENTS_CSV = Path("output") / "backtest_events.csv"
 DEFAULT_SUMMARY_JSON = Path("output") / "backtest_summary.json"
+DEFAULT_PLOTS_DIR = Path("output") / "backtest_plots"
 
 
 def _coerce_bottom_signal(series: pd.Series) -> pd.Series:
@@ -119,34 +121,85 @@ def _forward_return_next_available(
     return float(ret), idx[j], float(actual_hours)
 
 
+def _apply_cooldown(
+    event_indices: np.ndarray,
+    idx: pd.DatetimeIndex,
+    cooldown: pd.Timedelta | None,
+) -> np.ndarray:
+    """Keep events separated by at least cooldown duration."""
+    if cooldown is None or cooldown <= pd.Timedelta(0) or len(event_indices) <= 1:
+        return event_indices
+
+    keep: list[int] = []
+    last_time: pd.Timestamp | None = None
+    for raw_i in event_indices:
+        t = idx[int(raw_i)]
+        if last_time is None or (t - last_time) >= cooldown:
+            keep.append(int(raw_i))
+            last_time = t
+    return np.asarray(keep, dtype=int)
+
+
 def _match_random_indices(
     signal_indices: np.ndarray,
     candidate_indices: np.ndarray,
     regimes: np.ndarray,
+    idx: pd.DatetimeIndex,
     rng: np.random.RandomState,
+    cooldown: pd.Timedelta | None = None,
 ) -> tuple[np.ndarray, dict]:
     """Match random baseline timestamps by regime when possible."""
     matched = np.zeros(len(signal_indices), dtype=int)
     same_regime_hits = 0
+    cooldown_fallbacks = 0
 
     by_regime: dict[int, np.ndarray] = {}
     for reg in np.unique(regimes[candidate_indices]):
         by_regime[int(reg)] = candidate_indices[regimes[candidate_indices] == reg]
 
+    selected_times: list[pd.Timestamp] = []
+
+    def _can_use(cand_i: int) -> bool:
+        if cooldown is None or cooldown <= pd.Timedelta(0):
+            return True
+        cand_t = idx[int(cand_i)]
+        for used_t in selected_times:
+            if abs(cand_t - used_t) < cooldown:
+                return False
+        return True
+
+    def _pick_from_pool(pool: np.ndarray, max_attempts: int = 300) -> int | None:
+        if len(pool) == 0:
+            return None
+        for _ in range(max_attempts):
+            cand = int(pool[rng.randint(0, len(pool))])
+            if _can_use(cand):
+                return cand
+        return None
+
     for i, sig_i in enumerate(signal_indices):
         reg = int(regimes[sig_i])
         pool = by_regime.get(reg, np.array([], dtype=int))
-        if len(pool) > 0:
-            matched[i] = int(pool[rng.randint(0, len(pool))])
+        chosen = _pick_from_pool(pool)
+        if chosen is not None:
+            matched[i] = chosen
+            selected_times.append(idx[chosen])
             same_regime_hits += 1
             continue
-        matched[i] = int(candidate_indices[rng.randint(0, len(candidate_indices))])
+        chosen = _pick_from_pool(candidate_indices)
+        if chosen is None:
+            # Hard fallback if cooldown is too strict for current pool.
+            cooldown_fallbacks += 1
+            chosen = int(candidate_indices[rng.randint(0, len(candidate_indices))])
+        matched[i] = chosen
+        selected_times.append(idx[chosen])
 
     stats = {
         "n_signal": int(len(signal_indices)),
         "n_candidate": int(len(candidate_indices)),
         "same_regime_matches": int(same_regime_hits),
         "same_regime_match_rate": (same_regime_hits / len(signal_indices)) if len(signal_indices) else 0.0,
+        "cooldown_fallbacks": int(cooldown_fallbacks),
     }
     return matched, stats
 
@@ -185,27 +238,75 @@ def _build_event_rows(
     return pd.DataFrame(rows)
 
 
-def _bootstrap_p_value(
-    signal_ret: np.ndarray,
-    baseline_ret: np.ndarray,
+def _moving_block_indices(n: int, block_size: int, rng: np.random.RandomState) -> np.ndarray:
+    """Sample indices via moving block bootstrap with replacement."""
+    if n <= 0:
+        return np.zeros(0, dtype=int)
+    b = max(1, int(block_size))
+    starts = np.arange(0, n - b + 1) if n >= b else np.array([0], dtype=int)
+    out: list[int] = []
+    while len(out) < n:
+        s = int(starts[rng.randint(0, len(starts))])
+        out.extend(range(s, min(s + b, n)))
+    return np.asarray(out[:n], dtype=int)
+
+
+def _block_bootstrap_mean_distribution(
+    x: np.ndarray,
     n_bootstrap: int,
+    block_size: int,
     rng: np.random.RandomState,
-) -> tuple[float, float]:
-    """Bootstrap two-sided p-value for mean(signal-baseline)."""
-    diff = signal_ret - baseline_ret
-    diff = diff[np.isfinite(diff)]
-    if len(diff) == 0:
+) -> np.ndarray:
+    """Bootstrap distribution of mean using moving blocks."""
+    n = len(x)
+    if n == 0:
+        return np.zeros(0, dtype=float)
+    out = np.zeros(n_bootstrap, dtype=float)
+    for i in range(n_bootstrap):
+        sidx = _moving_block_indices(n, block_size, rng)
+        out[i] = float(np.mean(x[sidx]))
+    return out
+
+
+def _block_permutation_p_value(
+    x: np.ndarray,
+    n_permutation: int,
+    block_size: int,
+    rng: np.random.RandomState,
+) -> float:
+    """
+    Two-sided block sign-permutation p-value for mean(x) == 0.
+    Preserves within-block dependence by flipping whole blocks.
+    """
+    n = len(x)
+    if n == 0:
+        return float("nan")
+
+    b = max(1, int(block_size))
+    blocks: list[np.ndarray] = []
+    i = 0
+    while i < n:
+        blocks.append(np.arange(i, min(i + b, n), dtype=int))
+        i += b
+
+    observed = float(np.mean(x))
+    perm = np.zeros(n_permutation, dtype=float)
+    for p in range(n_permutation):
+        y = x.copy()
+        signs = rng.choice(np.array([-1.0, 1.0]), size=len(blocks))
+        for bi, bidx in enumerate(blocks):
+            y[bidx] = y[bidx] * signs[bi]
+        perm[p] = float(np.mean(y))
+    return float((np.sum(np.abs(perm) >= abs(observed)) + 1.0) / (n_permutation + 1.0))
+
+
+def _ci_from_distribution(samples: np.ndarray, alpha: float = 0.05) -> tuple[float, float]:
+    """Percentile confidence interval from bootstrap samples."""
+    if len(samples) == 0:
         return float("nan"), float("nan")
-
-    observed = float(np.mean(diff))
-    n = len(diff)
-    boot = np.zeros(n_bootstrap, dtype=float)
-    for b in range(n_bootstrap):
-        sample_idx = rng.randint(0, n, size=n)
-        boot[b] = float(np.mean(diff[sample_idx]))
-
-    p = (np.sum(np.abs(boot) >= abs(observed)) + 1.0) / (n_bootstrap + 1.0)
-    return observed, float(p)
+    low = float(np.quantile(samples, alpha / 2.0))
+    high = float(np.quantile(samples, 1.0 - alpha / 2.0))
+    return low, high
 
 
 def summarize_backtest(
@@ -213,13 +314,18 @@ def summarize_backtest(
     baseline_events: pd.DataFrame,
     horizons: Mapping[str, pd.Timedelta],
     n_bootstrap: int = 2000,
+    n_permutation: int = 2000,
+    block_size_events: int = 5,
     seed: int = 42,
 ) -> dict:
-    """Build summary stats and bootstrap p-values by horizon."""
+    """Build summary stats, CI, and block tests by horizon."""
     rng = np.random.RandomState(seed)
     out = {
         "n_signal_events": int(len(signal_events)),
         "n_baseline_events": int(len(baseline_events)),
+        "n_bootstrap": int(n_bootstrap),
+        "n_permutation": int(n_permutation),
+        "block_size_events": int(block_size_events),
         "horizons": {},
     }
 
@@ -236,13 +342,42 @@ def summarize_backtest(
         mask = np.isfinite(s) & np.isfinite(b)
         s_valid = s[mask]
         b_valid = b[mask]
+        diff = s_valid - b_valid
+        hit_diff = (s_valid > 0).astype(float) - (b_valid > 0).astype(float)
 
-        mean_diff, p_value = _bootstrap_p_value(
-            s_valid,
-            b_valid,
+        boot_mean = _block_bootstrap_mean_distribution(
+            diff,
             n_bootstrap=n_bootstrap,
+            block_size=block_size_events,
             rng=rng,
         )
+        mean_ci_low, mean_ci_high = _ci_from_distribution(boot_mean)
+        mean_perm_p = _block_permutation_p_value(
+            diff,
+            n_permutation=n_permutation,
+            block_size=block_size_events,
+            rng=rng,
+        )
+        mean_boot_p = float((np.sum(np.abs(boot_mean) >= abs(np.mean(diff))) + 1.0) / (len(boot_mean) + 1.0)) if len(boot_mean) else float("nan")
+
+        boot_hit = _block_bootstrap_mean_distribution(
+            hit_diff,
+            n_bootstrap=n_bootstrap,
+            block_size=block_size_events,
+            rng=rng,
+        )
+        hit_ci_low, hit_ci_high = _ci_from_distribution(boot_hit)
+        hit_perm_p = _block_permutation_p_value(
+            hit_diff,
+            n_permutation=n_permutation,
+            block_size=block_size_events,
+            rng=rng,
+        )
+        hit_boot_p = float((np.sum(np.abs(boot_hit) >= abs(np.mean(hit_diff))) + 1.0) / (len(boot_hit) + 1.0)) if len(boot_hit) else float("nan")
+
+        mean_diff = float(np.mean(diff)) if len(diff) else float("nan")
+        hit_rate_diff = float(np.mean(hit_diff)) if len(hit_diff) else float("nan")
+
         out["horizons"][h_name] = {
             "n_pairs": int(len(s_valid)),
             "signal_hit_rate": float(np.mean(s_valid > 0)) if len(s_valid) else float("nan"),
@@ -252,15 +387,105 @@ def summarize_backtest(
             "baseline_mean_return": float(np.mean(b_valid)) if len(b_valid) else float("nan"),
             "baseline_median_return": float(np.median(b_valid)) if len(b_valid) else float("nan"),
             "mean_return_diff": mean_diff,
-            "bootstrap_p_value": p_value,
+            "mean_return_diff_ci_low": mean_ci_low,
+            "mean_return_diff_ci_high": mean_ci_high,
+            "mean_return_block_bootstrap_p_value": mean_boot_p,
+            "mean_return_block_permutation_p_value": mean_perm_p,
+            "hit_rate_diff": hit_rate_diff,
+            "hit_rate_diff_ci_low": hit_ci_low,
+            "hit_rate_diff_ci_high": hit_ci_high,
+            "hit_rate_block_bootstrap_p_value": hit_boot_p,
+            "hit_rate_block_permutation_p_value": hit_perm_p,
+            # Backward-compatible alias.
+            "bootstrap_p_value": mean_boot_p,
         }
     return out
+
+
+def _write_horizon_plots(
+    signal_events: pd.DataFrame,
+    baseline_events: pd.DataFrame,
+    summary: dict,
+    output_dir: str | Path,
+    horizons: Mapping[str, pd.Timedelta],
+) -> dict[str, str]:
+    """Write per-horizon HTML plots and return horizon->path mapping."""
+    out_dir = Path(output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    paths: dict[str, str] = {}
+
+    for h_name in horizons:
+        ret_col = f"ret_{h_name}"
+        if ret_col in signal_events.columns and ret_col in baseline_events.columns:
+            s = signal_events[ret_col].to_numpy(dtype=float)
+            b = baseline_events[ret_col].to_numpy(dtype=float)
+            mask = np.isfinite(s) & np.isfinite(b)
+            s_valid = s[mask]
+            b_valid = b[mask]
+        else:
+            s_valid = np.zeros(0, dtype=float)
+            b_valid = np.zeros(0, dtype=float)
+        x = np.arange(len(s_valid), dtype=int)
+
+        fig = go.Figure()
+        if len(s_valid) > 0:
+            fig.add_trace(
+                go.Scatter(
+                    x=x,
+                    y=s_valid,
+                    mode="lines+markers",
+                    name="Signal return",
+                    line=dict(color="#10b981", width=1.5),
+                    marker=dict(size=5),
+                )
+            )
+            fig.add_trace(
+                go.Scatter(
+                    x=x,
+                    y=b_valid,
+                    mode="lines+markers",
+                    name="Random baseline return",
+                    line=dict(color="#f59e0b", width=1.5),
+                    marker=dict(size=5),
+                )
+            )
+            mean_s = float(np.mean(s_valid))
+            mean_b = float(np.mean(b_valid))
+            fig.add_hline(y=mean_s, line_dash="dot", line_color="#10b981", annotation_text="Signal mean")
+            fig.add_hline(y=mean_b, line_dash="dot", line_color="#f59e0b", annotation_text="Baseline mean")
+        else:
+            fig.add_annotation(text="No valid event pairs for this horizon", x=0.5, y=0.5, xref="paper", yref="paper", showarrow=False)
+
+        hs = summary.get("horizons", {}).get(h_name, {})
+        title = (
+            f"Bottom Signal Backtest {h_name} "
+            f"(n={hs.get('n_pairs', 0)}, mean_diff={hs.get('mean_return_diff', float('nan')):.6f}, "
+            f"CI=[{hs.get('mean_return_diff_ci_low', float('nan')):.6f}, {hs.get('mean_return_diff_ci_high', float('nan')):.6f}])"
+        )
+        fig.update_layout(
+            title=title,
+            xaxis_title="Matched pair index",
+            yaxis_title="Forward return",
+            template="plotly_white",
+            hovermode="x unified",
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            height=420,
+            margin=dict(l=40, r=20, t=70, b=40),
+        )
+
+        p = out_dir / f"backtest_{h_name}.html"
+        fig.write_html(str(p), include_plotlyjs="cdn")
+        paths[h_name] = str(p)
+    return paths
 
 
 def backtest_bottom_signals(
     df_raw: pd.DataFrame,
     horizons: Mapping[str, pd.Timedelta] | None = None,
     n_bootstrap: int = 2000,
+    n_permutation: int = 2000,
+    block_size_events: int = 5,
+    cooldown_hours: int = 0,
     seed: int = 42,
 ) -> tuple[pd.DataFrame, dict]:
     """Core backtest from an in-memory feature dataframe."""
@@ -271,8 +496,11 @@ def backtest_bottom_signals(
         return empty, {"error": "empty dataframe", "n_signal_events": 0, "n_baseline_events": 0, "horizons": {}}
 
     df = add_volatility_regime(df_raw)
+    idx = df.index
+    cooldown = pd.Timedelta(hours=max(int(cooldown_hours), 0))
     signal_mask = df["bottom_signal"].to_numpy(dtype=bool)
-    signal_indices = np.flatnonzero(signal_mask)
+    signal_indices_raw = np.flatnonzero(signal_mask)
+    signal_indices = _apply_cooldown(signal_indices_raw, idx, cooldown)
     candidate_indices = np.flatnonzero(~signal_mask)
 
     if len(signal_indices) == 0:
@@ -288,7 +516,9 @@ def backtest_bottom_signals(
         signal_indices=signal_indices,
         candidate_indices=candidate_indices,
         regimes=regimes,
+        idx=idx,
         rng=rng,
+        cooldown=cooldown if cooldown > pd.Timedelta(0) else None,
     )
 
     pair_ids = np.arange(len(signal_indices), dtype=int)
@@ -302,9 +532,14 @@ def backtest_bottom_signals(
         baseline_events=baseline_events,
         horizons=horizons,
         n_bootstrap=n_bootstrap,
+        n_permutation=n_permutation,
+        block_size_events=block_size_events,
         seed=seed,
     )
     summary["matching"] = match_stats
+    summary["cooldown_hours"] = int(max(int(cooldown_hours), 0))
+    summary["raw_signal_events"] = int(len(signal_indices_raw))
+    summary["cooldown_filtered_signal_events"] = int(len(signal_indices))
     return events, summary
 
 
@@ -313,6 +548,10 @@ def run_bottom_signal_backtest(
     output_events_csv: str | Path = DEFAULT_EVENTS_CSV,
     output_summary_json: str | Path = DEFAULT_SUMMARY_JSON,
     n_bootstrap: int = 2000,
+    n_permutation: int = 2000,
+    block_size_events: int = 5,
+    cooldown_hours: int = 0,
+    output_plots_dir: str | Path = DEFAULT_PLOTS_DIR,
     seed: int = 42,
 ) -> dict:
     """Load feature log CSV, run event backtest, and persist outputs."""
@@ -321,6 +560,9 @@ def run_bottom_signal_backtest(
         df_raw=df,
         horizons=DEFAULT_HORIZONS,
         n_bootstrap=n_bootstrap,
+        n_permutation=n_permutation,
+        block_size_events=block_size_events,
+        cooldown_hours=cooldown_hours,
         seed=seed,
     )
 
@@ -358,12 +600,26 @@ def run_bottom_signal_backtest(
     else:
         events.to_csv(output_events_csv, index=False, encoding="utf-8-sig")
 
+    signal_events = events[events["group"] == "signal"].copy() if len(events) else pd.DataFrame()
+    baseline_events = events[events["group"] == "random_baseline"].copy() if len(events) else pd.DataFrame()
+    plot_paths = _write_horizon_plots(
+        signal_events=signal_events,
+        baseline_events=baseline_events,
+        summary=summary,
+        output_dir=output_plots_dir,
+        horizons=DEFAULT_HORIZONS,
+    )
+    for h_name, path in plot_paths.items():
+        if h_name in summary.get("horizons", {}):
+            summary["horizons"][h_name]["plot_file"] = path
+
     with output_summary_json.open("w", encoding="utf-8") as f:
         json.dump(summary, f, ensure_ascii=False, indent=2)
 
     return {
         "events_path": str(output_events_csv),
         "summary_path": str(output_summary_json),
+        "plots_dir": str(output_plots_dir),
         "summary": summary,
     }
 
@@ -373,7 +629,11 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--input", default=str(DEFAULT_INPUT_CSV), help="Input feature CSV path")
     p.add_argument("--events-out", default=str(DEFAULT_EVENTS_CSV), help="Output event CSV path")
     p.add_argument("--summary-out", default=str(DEFAULT_SUMMARY_JSON), help="Output summary JSON path")
+    p.add_argument("--plots-dir", default=str(DEFAULT_PLOTS_DIR), help="Output horizon plot directory")
     p.add_argument("--bootstrap", type=int, default=2000, help="Bootstrap iterations")
+    p.add_argument("--permutations", type=int, default=2000, help="Block permutation iterations")
+    p.add_argument("--block-size", type=int, default=5, help="Block size in event units")
+    p.add_argument("--cooldown-hours", type=int, default=0, help="Minimum hours between signal events")
     p.add_argument("--seed", type=int, default=42, help="Random seed")
     return p
 
@@ -385,7 +645,12 @@ if __name__ == "__main__":
         output_events_csv=args.events_out,
         output_summary_json=args.summary_out,
         n_bootstrap=args.bootstrap,
+        n_permutation=args.permutations,
+        block_size_events=args.block_size,
+        cooldown_hours=args.cooldown_hours,
+        output_plots_dir=args.plots_dir,
         seed=args.seed,
     )
     print(f"events_csv: {result['events_path']}")
     print(f"summary_json: {result['summary_path']}")
+    print(f"plots_dir: {result['plots_dir']}")

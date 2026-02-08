@@ -122,3 +122,74 @@ def test_run_backtest_writes_outputs_and_columns(tmp_path):
     assert "horizons" in summary
     assert "6h" in summary["horizons"]
     assert "bootstrap_p_value" in summary["horizons"]["6h"]
+
+
+def test_cooldown_enforced_between_signal_events():
+    df = _make_feature_df(n=320, seed=10)
+    events, summary = backtest_bottom_signals(
+        df,
+        cooldown_hours=24,
+        n_bootstrap=200,
+        n_permutation=200,
+        block_size_events=3,
+        seed=5,
+    )
+    signal_events = events[events["group"] == "signal"].sort_values("event_time")
+    times = pd.to_datetime(signal_events["event_time"])
+    if len(times) >= 2:
+        diffs = (times.diff().dropna().dt.total_seconds() / 3600.0).to_numpy(dtype=float)
+        assert np.all(diffs >= 24.0 - 1e-9)
+    assert summary["cooldown_hours"] == 24
+    assert summary["cooldown_filtered_signal_events"] <= summary["raw_signal_events"]
+
+
+def test_summary_contains_block_stats_and_confidence_intervals():
+    df = _make_feature_df(n=320, seed=4)
+    _, summary = backtest_bottom_signals(
+        df,
+        n_bootstrap=200,
+        n_permutation=200,
+        block_size_events=4,
+        seed=2,
+    )
+    h = summary["horizons"]["6h"]
+    required = {
+        "mean_return_diff_ci_low",
+        "mean_return_diff_ci_high",
+        "mean_return_block_bootstrap_p_value",
+        "mean_return_block_permutation_p_value",
+        "hit_rate_diff",
+        "hit_rate_diff_ci_low",
+        "hit_rate_diff_ci_high",
+        "hit_rate_block_bootstrap_p_value",
+        "hit_rate_block_permutation_p_value",
+    }
+    assert required.issubset(set(h.keys()))
+
+
+def test_run_backtest_writes_horizon_plots(tmp_path):
+    df = _make_feature_df(n=320, seed=12)
+    input_csv = tmp_path / "btc_price_features_log.csv"
+    events_csv = tmp_path / "backtest_events.csv"
+    summary_json = tmp_path / "backtest_summary.json"
+    plots_dir = tmp_path / "plots"
+
+    df.to_csv(input_csv, index_label="datetime", encoding="utf-8-sig")
+    result = run_bottom_signal_backtest(
+        input_csv=input_csv,
+        output_events_csv=events_csv,
+        output_summary_json=summary_json,
+        output_plots_dir=plots_dir,
+        n_bootstrap=100,
+        n_permutation=100,
+        block_size_events=3,
+        cooldown_hours=12,
+        seed=11,
+    )
+
+    assert plots_dir.exists()
+    summary = result["summary"]
+    for h in ["6h", "12h", "24h", "3d", "7d"]:
+        plot_file = summary["horizons"][h].get("plot_file")
+        assert plot_file is not None
+        assert (tmp_path / "plots" / f"backtest_{h}.html").exists()
