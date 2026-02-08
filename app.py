@@ -8,6 +8,7 @@ KIMOTO STUDIO
 import os
 import time
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -27,6 +28,10 @@ QUERY_LIMIT = 50000
 DEFAULT_VIEW_DAYS = 30
 TIMEFRAME_OPTIONS = {"24h": 1, "1w": 7, "2w": 14, "1m": 30}
 PREDICTION_HOURS = {"24h": 24, "1w": 72, "2w": 336, "1m": 168}
+FEATURE_LOG_PATH = os.getenv(
+    "FEATURE_LOG_PATH",
+    os.path.join("output", "btc_price_features_log.csv"),
+)
 
 # Import core indicator functions from btc_monitor (same repo)
 try:
@@ -531,11 +536,20 @@ st.markdown("""
         [data-testid="stMetricLabel"] { font-size: 0.7rem !important; }
         .stButton > button { padding: 0.5rem 0.75rem; font-size: 0.85rem; }
         .signal-box { font-size: 0.9rem; padding: 0.75rem 1rem; }
-        [data-testid="stPlotlyChart"] > div,
-        [data-testid="stPlotlyChart"] .plot-container,
-        [data-testid="stPlotlyChart"] .svg-container {
-            height: 520px !important;
+
+        /* Chart: hide plotly toolbar on mobile (saves space, prevents accidental taps) */
+        .modebar-container { display: none !important; }
+
+        /* Chart: main price chart (first plotly) gets taller for readability */
+        [data-testid="stPlotlyChart"]:first-of-type > div,
+        [data-testid="stPlotlyChart"]:first-of-type .plot-container,
+        [data-testid="stPlotlyChart"]:first-of-type .svg-container {
+            height: 380px !important;
         }
+
+        /* Chart: plotly axis labels larger on mobile for finger-friendly reading */
+        .xtick text, .ytick text { font-size: 11px !important; }
+        .legendtext { font-size: 12px !important; }
     }
 </style>
 """, unsafe_allow_html=True)
@@ -797,6 +811,66 @@ def build_price_feature_csv_df(df_price: pd.DataFrame, free_energy_features: pd.
     if "bottom_signal" in out.columns:
         out["bottom_signal"] = out["bottom_signal"].fillna(False).astype(bool)
     return out
+
+
+def persist_price_feature_csv(
+    df_price_features: pd.DataFrame,
+    path: str = FEATURE_LOG_PATH,
+) -> dict:
+    """
+    Persist raw prices + computed features to CSV for later backtesting.
+    Appends only rows newer than the latest persisted datetime.
+    """
+    stats = {
+        "path": str(path),
+        "total_rows": int(len(df_price_features)),
+        "appended_rows": 0,
+        "error": None,
+    }
+    if len(df_price_features) == 0:
+        return stats
+
+    try:
+        out = df_price_features.copy().sort_index()
+        out = out[~out.index.duplicated(keep="last")]
+        if getattr(out.index, "tz", None) is not None:
+            out.index = out.index.tz_convert("UTC").tz_localize(None)
+
+        target = Path(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+
+        if not target.exists():
+            out.to_csv(target, index_label="datetime", encoding="utf-8-sig")
+            stats["appended_rows"] = int(len(out))
+            return stats
+
+        last_dt = None
+        try:
+            existing_dt = pd.read_csv(target, usecols=["datetime"])["datetime"]
+            existing_dt = pd.to_datetime(existing_dt, errors="coerce")
+            if existing_dt.notna().any():
+                last_dt = existing_dt.max().tz_localize(None) if getattr(existing_dt.max(), "tzinfo", None) else existing_dt.max()
+        except Exception:
+            last_dt = None
+
+        if last_dt is not None:
+            new_rows = out[out.index > last_dt]
+        else:
+            new_rows = out
+
+        if len(new_rows) > 0:
+            new_rows.to_csv(
+                target,
+                mode="a",
+                header=False,
+                index_label="datetime",
+                encoding="utf-8",
+            )
+            stats["appended_rows"] = int(len(new_rows))
+        return stats
+    except Exception as e:
+        stats["error"] = str(e)
+        return stats
 
 
 def free_energy_chart(
@@ -1778,6 +1852,7 @@ def main():
     if len(free_energy_features_view) > 0:
         free_energy_features_view = free_energy_features_view[free_energy_features_view.index >= cutoff_dt]
     df_price_features_csv = build_price_feature_csv_df(df_price_full, free_energy_features_full)
+    persist_price_feature_csv(df_price_features_csv)
 
     prediction_df = predict_price_trend(df_price_view, prediction_hours)
     prediction_warning = prediction_df.attrs.get("prediction_warning") if len(prediction_df) > 0 else None
