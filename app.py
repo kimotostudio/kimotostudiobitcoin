@@ -685,7 +685,8 @@ def price_chart_with_prediction(
     df: pd.DataFrame,
     prediction_df: pd.DataFrame,
     chart_title: str,
-    timeframe: str
+    timeframe: str,
+    view_range: tuple | None = None
 ):
     """Plotly price chart with prediction curve."""
     if len(df) == 0:
@@ -791,6 +792,10 @@ def price_chart_with_prediction(
         fig.update_xaxes(tickformat="%m/%d %H:%M")
     else:
         fig.update_xaxes(tickformat="%m/%d")
+
+    if view_range is not None:
+        # Default view is 2w; zoom out reveals full history.
+        fig.update_xaxes(range=view_range)
 
     st.plotly_chart(fig, use_container_width=True)
 
@@ -1503,13 +1508,15 @@ def main():
     df_price_full = load_price_history(None)
     df_snap_full = load_snapshot_history(None)
 
+    now_ts = pd.Timestamp.utcnow().tz_localize(None)
+    cutoff_dt = now_ts - pd.Timedelta(days=view_days)
+    if len(df_price_full) > 0 and getattr(df_price_full.index, "tz", None) is not None:
+        df_price_full.index = df_price_full.index.tz_convert("UTC").tz_localize(None)
+    if len(df_snap_full) > 0 and getattr(df_snap_full.index, "tz", None) is not None:
+        df_snap_full.index = df_snap_full.index.tz_convert("UTC").tz_localize(None)
+
     df_price_view = df_price_full
     df_snap_view = df_snap_full
-    cutoff_dt = pd.Timestamp.utcnow().tz_localize(None) - pd.Timedelta(days=view_days)
-    if len(df_price_view) > 0 and getattr(df_price_view.index, "tz", None) is not None:
-        df_price_view.index = df_price_view.index.tz_convert("UTC").tz_localize(None)
-    if len(df_snap_view) > 0 and getattr(df_snap_view.index, "tz", None) is not None:
-        df_snap_view.index = df_snap_view.index.tz_convert("UTC").tz_localize(None)
     if len(df_price_view) > 0:
         df_price_view = df_price_view[df_price_view.index >= cutoff_dt]
     if len(df_snap_view) > 0:
@@ -1519,7 +1526,13 @@ def main():
 
     # ── Price Chart ──
     st.subheader(chart_title)
-    price_chart_with_prediction(df_price_view, prediction_df, chart_title, active_tf)
+    price_chart_with_prediction(
+        df_price_full,
+        prediction_df,
+        chart_title,
+        active_tf,
+        view_range=(cutoff_dt, now_ts),
+    )
 
     if len(prediction_df) > 0 and len(df_price_view) > 0:
         predicted_change = (
