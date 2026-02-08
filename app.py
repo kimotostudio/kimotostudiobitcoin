@@ -21,8 +21,8 @@ from sklearn.linear_model import LinearRegression
 # Bounded history reads + default chart span
 QUERY_LIMIT = 50000
 DEFAULT_VIEW_DAYS = 14
-TIMEFRAME_OPTIONS = {"24h": 1, "1w": 7, "2w": 14, "1m": 30}
-PREDICTION_HOURS = {"24h": 24, "1w": 72, "2w": 168, "1m": 168}
+TIMEFRAME_OPTIONS = {"24h": 1, "1w": 7, "2w": 14, "1m": 30, "3m": 90, "6m": 180, "1y": 365, "5y": 1825}
+PREDICTION_HOURS = {"24h": 24, "1w": 72, "2w": 168, "1m": 168, "3m": 168, "6m": 168, "1y": 168, "5y": 168}
 
 # Import core indicator functions from btc_monitor (same repo)
 try:
