@@ -14,9 +14,9 @@ import pandas as pd
 import plotly.graph_objects as go
 import requests
 import streamlit as st
-from scipy import stats
 from sqlalchemy import create_engine, text
-from sklearn.linear_model import LinearRegression
+from filterpy.kalman import KalmanFilter
+from filterpy.common import Q_discrete_white_noise
 
 # Bounded history reads + default chart span
 QUERY_LIMIT = 50000
@@ -227,7 +227,7 @@ TRANSLATIONS = {
     "pred_label_hours": {"ja": "{h}時間", "en": "{h}h"},
     "pred_label_days": {"ja": "{d}日", "en": "{d}d"},
     "prediction_start": {"ja": "予測開始", "en": "Prediction Start"},
-    "prediction_curve": {"ja": "予測曲線", "en": "Prediction Curve"},
+    "prediction_curve": {"ja": "予測曲線 (Kalman)", "en": "Prediction (Kalman)"},
     "pred_hover": {"ja": "予測: ", "en": "Predicted: "},
     "price_collecting": {"ja": "価格データを収集中...", "en": "Collecting price data..."},
     "pred_error": {"ja": "予測計算エラー", "en": "Prediction calculation error"},
@@ -243,6 +243,7 @@ TRANSLATIONS = {
     "trend_direction": {"ja": "トレンド方向", "en": "Trend Direction"},
     "trend_up": {"ja": "上昇", "en": "Up"},
     "trend_down": {"ja": "下降", "en": "Down"},
+    "pred_ci": {"ja": "95%信頼区間", "en": "95% CI"},
     # Indicators
     "indicators_title": {"ja": "テクニカル指標", "en": "Technical Indicators"},
     "signals_title": {"ja": "シグナル一覧", "en": "Signal List"},
@@ -282,6 +283,8 @@ TRANSLATIONS = {
     "footer_disclaimer": {"ja": "投資判断は自己責任で行ってください", "en": "Investment decisions are at your own risk"},
     # Language selector
     "lang_label": {"ja": "言語 / Language", "en": "言語 / Language"},
+    # Exchange rate
+    "exchange_rate_note": {"ja": "", "en": "Exchange rate: ~$1 = ¥{rate:.0f}"},
 }
 
 
@@ -293,6 +296,24 @@ def get_text(key: str, **kwargs) -> str:
     if kwargs:
         text = text.format(**kwargs)
     return text
+
+
+# ============================================================================
+# Currency Formatting (JPY + USD for English)
+# ============================================================================
+
+JPY_TO_USD_RATE = 150.0  # 1 USD ≈ 150 JPY
+
+
+def format_price(jpy_price) -> str:
+    """Format price: JPY only for ja, JPY + (USD) for en."""
+    if jpy_price is None:
+        return "---"
+    jpy_str = f"¥{jpy_price:,.0f}"
+    if st.session_state.get("lang") == "en":
+        usd = jpy_price / JPY_TO_USD_RATE
+        return f"{jpy_str} (${usd:,.0f})"
+    return jpy_str
 
 
 def render_language_selector():
@@ -314,6 +335,10 @@ def render_language_selector():
                          type="primary" if st.session_state["lang"] == "en" else "secondary"):
                 st.session_state["lang"] = "en"
                 st.rerun()
+    if st.session_state.get("lang") == "en":
+        _, col_rate = st.columns([5, 1])
+        with col_rate:
+            st.caption(f"$1 ≈ ¥{JPY_TO_USD_RATE:.0f}")
 
 
 st.markdown("""
@@ -615,85 +640,61 @@ def analyze(df: pd.DataFrame) -> dict:
 # Charts
 # ============================================================================
 
+def _create_price_kalman(initial_price, initial_velocity=0.0):
+    """Create Kalman Filter for price prediction (state: [price, velocity])."""
+    kf = KalmanFilter(dim_x=2, dim_z=1)
+    kf.x = np.array([initial_price, initial_velocity])
+    dt = 1.0  # 1 hour
+    kf.F = np.array([[1., dt], [0., 1.]])
+    kf.H = np.array([[1., 0.]])
+    kf.R = np.array([[50000.**2]])
+    kf.Q = Q_discrete_white_noise(dim=2, dt=dt, var=10000.**2)
+    kf.P = np.eye(2) * 1_000_000.
+    return kf
+
+
 def predict_price_trend(df: pd.DataFrame, hours_ahead: int = 24) -> pd.DataFrame:
-    """Predict future price trend using linear regression."""
+    """Predict future price trend using Kalman Filter."""
     if len(df) < 50:
         return pd.DataFrame()
 
     try:
-        df_copy = df.copy()
-        df_copy = df_copy.sort_index()
-        df_copy["hours"] = (df_copy.index - df_copy.index[0]).total_seconds() / 3600
+        recent_df = df.tail(min(168, len(df)))
+        prices = recent_df["price"].values
 
-        recent_df = df_copy[df_copy.index >= df_copy.index.max() - pd.Timedelta(hours=168)]
-        if len(recent_df) == 0:
-            recent_df = df_copy
+        initial_velocity = float(np.mean(np.diff(prices[:5]))) if len(prices) >= 5 else 0.0
+        kf = _create_price_kalman(prices[0], initial_velocity)
 
-        X = recent_df["hours"].values.reshape(-1, 1)
-        y = recent_df["price"].values
+        # Run filter on historical data
+        for price in prices:
+            kf.predict()
+            kf.update(price)
 
-        model = LinearRegression()
-        model.fit(X, y)
-
-        last_hour = recent_df["hours"].iloc[-1]
-        future_hours = np.linspace(last_hour, last_hour + hours_ahead, hours_ahead)
-        future_X = future_hours.reshape(-1, 1)
-        future_prices = model.predict(future_X)
+        # Predict future
+        future_prices = []
+        future_stds = []
+        for _ in range(hours_ahead):
+            kf.predict()
+            future_prices.append(float(kf.x[0]))
+            future_stds.append(float(np.sqrt(kf.P[0, 0])))
 
         last_timestamp = df.index[-1]
         future_timestamps = pd.date_range(
             start=last_timestamp + timedelta(hours=1),
             periods=hours_ahead,
-            freq="H"
+            freq="H",
         )
 
         future_df = pd.DataFrame({
             "price": future_prices,
-            "timestamp": future_timestamps,
-        })
-        future_df.set_index("timestamp", inplace=True)
+            "std": future_stds,
+            "upper": np.array(future_prices) + 1.96 * np.array(future_stds),
+            "lower": np.array(future_prices) - 1.96 * np.array(future_stds),
+        }, index=future_timestamps)
         return future_df
 
     except Exception:
         st.warning(get_text("pred_error"))
-        return pd.DataFrame()
-
-
-def predict_price_moving_average(
-    df: pd.DataFrame, hours_ahead: int = 24, window: int = 24
-) -> pd.DataFrame:
-    """Predict future price using moving average extension."""
-    if len(df) < window:
-        return pd.DataFrame()
-
-    try:
-        ma = df["price"].rolling(window=window).mean()
-        recent_ma = ma.tail(window).dropna()
-        if len(recent_ma) < 2:
-            return pd.DataFrame()
-
-        x = np.arange(len(recent_ma))
-        slope, intercept, _, _, _ = stats.linregress(x, recent_ma.values)
-
-        last_value = recent_ma.iloc[-1]
-        future_values = [last_value + slope * i for i in range(1, hours_ahead + 1)]
-
-        last_timestamp = df.index[-1]
-        future_timestamps = pd.date_range(
-            start=last_timestamp + timedelta(hours=1),
-            periods=hours_ahead,
-            freq="H"
-        )
-
-        future_df = pd.DataFrame({
-            "price": future_values,
-            "timestamp": future_timestamps,
-        })
-        future_df.set_index("timestamp", inplace=True)
-        return future_df
-
-    except Exception:
-        st.warning(get_text("pred_ma_error"))
         return pd.DataFrame()
 
 def price_chart_with_prediction(
@@ -708,15 +709,30 @@ def price_chart_with_prediction(
         st.info(get_text("price_collecting"))
         return
 
+    is_en = st.session_state.get("lang") == "en"
+
+    # Build hover templates with USD for English
+    if is_en:
+        price_hover = "¥%{y:,.0f} ($%{customdata:,.0f})<br>%{x|%Y-%m-%d %H:%M}<extra></extra>"
+        pred_hover = get_text("pred_hover") + "¥%{y:,.0f} ($%{customdata:,.0f})<br>%{x|%Y-%m-%d %H:%M}<extra></extra>"
+        main_customdata = (df["price"].values / JPY_TO_USD_RATE)
+    else:
+        price_hover = "%{y:,.0f} JPY<br>%{x|%Y-%m-%d %H:%M}<extra></extra>"
+        pred_hover = get_text("pred_hover") + "%{y:,.0f} JPY<br>%{x|%Y-%m-%d %H:%M}<extra></extra>"
+        main_customdata = None
+
     fig = go.Figure()
-    fig.add_trace(go.Scatter(
+    trace_kwargs = dict(
         x=df.index, y=df["price"],
         mode="lines", name="BTC/JPY",
         line=dict(color="#58a6ff", width=2),
         fill="tozeroy",
         fillcolor="rgba(88,166,255,0.08)",
-        hovertemplate="%{y:,.0f} JPY<br>%{x|%Y-%m-%d %H:%M}<extra></extra>",
-    ))
+        hovertemplate=price_hover,
+    )
+    if main_customdata is not None:
+        trace_kwargs["customdata"] = main_customdata
+    fig.add_trace(go.Scatter(**trace_kwargs))
 
     if len(prediction_df) > 0:
         last_point = df.iloc[-1]
@@ -724,23 +740,22 @@ def price_chart_with_prediction(
             pd.DataFrame({"price": [last_point["price"]]}, index=[df.index[-1]]),
             prediction_df,
         ])
-        fig.add_trace(go.Scatter(
+        pred_kwargs = dict(
             x=prediction_with_connection.index,
             y=prediction_with_connection["price"],
             mode="lines",
             name=get_text("prediction_curve"),
             line=dict(color="#fbbf24", width=2, dash="dot"),
-            hovertemplate=get_text("pred_hover") + "%{y:,.0f} JPY<br>%{x|%Y-%m-%d %H:%M}<extra></extra>",
-        ))
+            hovertemplate=pred_hover,
+        )
+        if is_en:
+            pred_kwargs["customdata"] = (prediction_with_connection["price"].values / JPY_TO_USD_RATE)
+        fig.add_trace(go.Scatter(**pred_kwargs))
 
-        std_dev = df["price"].tail(48).std()
-        if pd.notna(std_dev) and std_dev > 0:
-            upper = prediction_df["price"] + std_dev
-            lower = prediction_df["price"] - std_dev
-
+        if "upper" in prediction_df.columns and "lower" in prediction_df.columns:
             fig.add_trace(go.Scatter(
                 x=prediction_df.index,
-                y=upper,
+                y=prediction_df["upper"],
                 mode="lines",
                 line=dict(width=0),
                 showlegend=False,
@@ -748,10 +763,10 @@ def price_chart_with_prediction(
             ))
             fig.add_trace(go.Scatter(
                 x=prediction_df.index,
-                y=lower,
+                y=prediction_df["lower"],
                 mode="lines",
                 fill="tonexty",
-                fillcolor="rgba(251,191,36,0.1)",
+                fillcolor="rgba(251,191,36,0.15)",
                 line=dict(width=0),
                 showlegend=False,
                 hoverinfo="skip",
@@ -1222,7 +1237,7 @@ def send_discord_score_alert(webhook_url: str, score: int, price: float,
                 "description": get_text("discord_alert_desc", score=score, level=level),
                 "color": color,
                 "fields": [
-                    {"name": get_text("discord_field_price"), "value": f"¥{price:,.0f}", "inline": True},
+                    {"name": get_text("discord_field_price"), "value": format_price(price), "inline": True},
                     {"name": get_text("discord_field_score"), "value": f"{score}/100", "inline": True},
                     {"name": "RSI", "value": f"{rsi_val:.1f}", "inline": True},
                 ],
@@ -1464,7 +1479,7 @@ def main():
         with k1:
             st.metric(
                 get_text("kpi_price"),
-                f"¥{latest_price:,.0f}",
+                format_price(latest_price),
                 delta=f"{change_pct:+.2f}%" if change_pct is not None else None,
             )
         with k2:
@@ -1476,7 +1491,7 @@ def main():
             st.markdown(
                 '<div class="signal-box signal-fire">'
                 f'<strong>{get_text("alert_fire")}</strong>  '
-                f'Score {score}/100  |  ¥{latest_price:,.0f}'
+                f'Score {score}/100  |  {format_price(latest_price)}'
                 '</div>',
                 unsafe_allow_html=True,
             )
@@ -1556,9 +1571,9 @@ def main():
             / df_price_view["price"].iloc[-1] * 100
         )
 
-        p1, p2, p3 = st.columns(3)
+        p1, p2, p3, p4 = st.columns(4)
         with p1:
-            st.metric(get_text("pred_current"), f"¥{df_price_view['price'].iloc[-1]:,.0f}")
+            st.metric(get_text("pred_current"), format_price(df_price_view['price'].iloc[-1]))
         with p2:
             if prediction_hours < 48:
                 hours_text = get_text("pred_hours_later", h=prediction_hours)
@@ -1566,12 +1581,21 @@ def main():
                 hours_text = get_text("pred_days_later", d=prediction_hours // 24)
             st.metric(
                 get_text("pred_future", t=hours_text),
-                f"¥{prediction_df['price'].iloc[-1]:,.0f}",
+                format_price(prediction_df['price'].iloc[-1]),
                 delta=f"{predicted_change:+.2f}%"
             )
         with p3:
             direction = get_text("trend_up") if predicted_change > 0 else get_text("trend_down")
             st.metric(get_text("trend_direction"), direction, delta=f"{abs(predicted_change):.2f}%")
+        with p4:
+            if "lower" in prediction_df.columns and "upper" in prediction_df.columns:
+                low = prediction_df["lower"].iloc[-1]
+                high = prediction_df["upper"].iloc[-1]
+                st.metric(
+                    get_text("pred_ci"),
+                    f"±{format_price(prediction_df['std'].iloc[-1]) if 'std' in prediction_df.columns else '---'}",
+                )
+                st.caption(f"{format_price(low)} ~ {format_price(high)}")
 
     # ── Score Timeline ──
     st.subheader(get_text("score_timeline"))
