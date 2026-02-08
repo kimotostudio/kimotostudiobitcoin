@@ -296,23 +296,24 @@ def get_text(key: str, **kwargs) -> str:
 
 
 def render_language_selector():
-    """Language selector in sidebar."""
+    """Language selector in main area, top-right aligned."""
     if "lang" not in st.session_state:
         st.session_state["lang"] = "ja"
 
-    st.sidebar.markdown("---")
-    st.sidebar.markdown(f"**{get_text('lang_label')}**")
-    col_ja, col_en = st.sidebar.columns(2)
-    with col_ja:
-        if st.button("🇯🇵 日本語", use_container_width=True,
-                     type="primary" if st.session_state["lang"] == "ja" else "secondary"):
-            st.session_state["lang"] = "ja"
-            st.rerun()
-    with col_en:
-        if st.button("🇬🇧 English", use_container_width=True,
-                     type="primary" if st.session_state["lang"] == "en" else "secondary"):
-            st.session_state["lang"] = "en"
-            st.rerun()
+    # Push buttons to the right using columns
+    _, col_lang = st.columns([5, 1])
+    with col_lang:
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("🇯🇵", key="lang_ja",
+                         type="primary" if st.session_state["lang"] == "ja" else "secondary"):
+                st.session_state["lang"] = "ja"
+                st.rerun()
+        with c2:
+            if st.button("🇬🇧", key="lang_en",
+                         type="primary" if st.session_state["lang"] == "en" else "secondary"):
+                st.session_state["lang"] = "en"
+                st.rerun()
 
 
 st.markdown("""
