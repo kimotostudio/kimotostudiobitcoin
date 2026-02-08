@@ -334,6 +334,41 @@ def format_price(jpy_price) -> str:
     return jpy_str
 
 
+def format_price_metric_value(jpy_price) -> str:
+    """Compact metric value for English to avoid truncation."""
+    if jpy_price is None:
+        return "---"
+    if st.session_state.get("lang") == "en":
+        return f"{jpy_price:,.0f} yen"
+    return format_price(jpy_price)
+
+
+def format_price_metric_hint(jpy_price) -> str | None:
+    """Small USD hint line for English metrics."""
+    if jpy_price is None or st.session_state.get("lang") != "en":
+        return None
+    usd = jpy_price / JPY_TO_USD_RATE
+    return f"(~{usd:,.0f} USD)"
+
+
+def format_price_range_metric_value(low, high) -> str:
+    """Compact range value for CI metric."""
+    if low is None or high is None:
+        return "---"
+    if st.session_state.get("lang") == "en":
+        return f"{low:,.0f} - {high:,.0f} yen"
+    return f"{format_price(low)} ~ {format_price(high)}"
+
+
+def format_price_range_metric_hint(low, high) -> str | None:
+    """Small USD hint line for English CI range."""
+    if low is None or high is None or st.session_state.get("lang") != "en":
+        return None
+    low_usd = low / JPY_TO_USD_RATE
+    high_usd = high / JPY_TO_USD_RATE
+    return f"(~{low_usd:,.0f} - {high_usd:,.0f} USD)"
+
+
 def render_language_selector():
     """Language selector in main area, top-right aligned."""
     if "lang" not in st.session_state:
@@ -366,14 +401,14 @@ def apply_language_metric_tweaks():
     st.markdown("""
 <style>
     [data-testid="stMetricValue"] {
-        font-size: 2.0rem !important;
+        font-size: 1.7rem !important;
         line-height: 1.15 !important;
-        white-space: normal !important;
+        white-space: pre-line !important;
         overflow: visible !important;
         text-overflow: clip !important;
     }
     @media (max-width: 768px) {
-        [data-testid="stMetricValue"] { font-size: 1.35rem !important; }
+        [data-testid="stMetricValue"] { font-size: 1.15rem !important; }
     }
 </style>
 """, unsafe_allow_html=True)
@@ -1511,9 +1546,12 @@ def main():
         with k1:
             st.metric(
                 get_text("kpi_price"),
-                format_price(latest_price),
+                format_price_metric_value(latest_price),
                 delta=f"{change_pct:+.2f}%" if change_pct is not None else None,
             )
+            price_hint = format_price_metric_hint(latest_price)
+            if price_hint:
+                st.caption(price_hint)
         with k2:
             st.metric(get_text("kpi_status"), result["status"])
             st.caption(get_text("kpi_data_pts", n=len(df_price)))
@@ -1620,17 +1658,25 @@ def main():
 
         p1, p2, p3, p4 = st.columns(4)
         with p1:
-            st.metric(get_text("pred_current"), format_price(df_price_view['price'].iloc[-1]))
+            current_value = df_price_view["price"].iloc[-1]
+            st.metric(get_text("pred_current"), format_price_metric_value(current_value))
+            current_hint = format_price_metric_hint(current_value)
+            if current_hint:
+                st.caption(current_hint)
         with p2:
             if prediction_hours < 48:
                 hours_text = get_text("pred_hours_later", h=prediction_hours)
             else:
                 hours_text = get_text("pred_days_later", d=prediction_hours // 24)
+            future_value = prediction_df["price"].iloc[-1]
             st.metric(
                 get_text("pred_future", t=hours_text),
-                format_price(prediction_df['price'].iloc[-1]),
+                format_price_metric_value(future_value),
                 delta=f"{predicted_change:+.2f}%"
             )
+            future_hint = format_price_metric_hint(future_value)
+            if future_hint:
+                st.caption(future_hint)
         with p3:
             direction = get_text("trend_up") if predicted_change > 0 else get_text("trend_down")
             st.metric(get_text("trend_direction"), direction, delta=f"{abs(predicted_change):.2f}%")
@@ -1638,22 +1684,14 @@ def main():
             if "lower" in prediction_df.columns and "upper" in prediction_df.columns:
                 low = prediction_df["lower"].iloc[-1]
                 high = prediction_df["upper"].iloc[-1]
-                if pd.notna(low) and pd.notna(high):
-                    if st.session_state.get("lang") == "en":
-                        low_usd = low / JPY_TO_USD_RATE
-                        high_usd = high / JPY_TO_USD_RATE
-                        ci_text = (
-                            f"¥{low:,.0f} (~USD {low_usd:,.0f}) "
-                            f"~ ¥{high:,.0f} (~USD {high_usd:,.0f})"
-                        )
-                    else:
-                        ci_text = f"{format_price(low)} ~ {format_price(high)}"
-                else:
-                    ci_text = "---"
+                ci_text = format_price_range_metric_value(low, high) if (pd.notna(low) and pd.notna(high)) else "---"
                 st.metric(
                     get_text("pred_ci"),
                     ci_text,
                 )
+                ci_hint = format_price_range_metric_hint(low, high)
+                if ci_hint:
+                    st.caption(ci_hint)
 
     # ── Backtest ──
     if len(df_price_view) >= 100:
