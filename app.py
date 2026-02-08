@@ -1617,7 +1617,18 @@ def main():
             if "lower" in prediction_df.columns and "upper" in prediction_df.columns:
                 low = prediction_df["lower"].iloc[-1]
                 high = prediction_df["upper"].iloc[-1]
-                ci_text = f"{format_price(low)} ~ {format_price(high)}" if (pd.notna(low) and pd.notna(high)) else "---"
+                if pd.notna(low) and pd.notna(high):
+                    if st.session_state.get("lang") == "en":
+                        low_usd = low / JPY_TO_USD_RATE
+                        high_usd = high / JPY_TO_USD_RATE
+                        ci_text = (
+                            f"¥{low:,.0f} (~USD {low_usd:,.0f}) "
+                            f"~ ¥{high:,.0f} (~USD {high_usd:,.0f})"
+                        )
+                    else:
+                        ci_text = f"{format_price(low)} ~ {format_price(high)}"
+                else:
+                    ci_text = "---"
                 st.metric(
                     get_text("pred_ci"),
                     ci_text,
