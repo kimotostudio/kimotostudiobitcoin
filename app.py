@@ -310,7 +310,7 @@ def render_language_selector():
                 st.session_state["lang"] = "ja"
                 st.rerun()
         with c2:
-            if st.button("🇬🇧", key="lang_en",
+            if st.button("EN", key="lang_en",
                          type="primary" if st.session_state["lang"] == "en" else "secondary"):
                 st.session_state["lang"] = "en"
                 st.rerun()
