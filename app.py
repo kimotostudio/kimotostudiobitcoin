@@ -209,6 +209,10 @@ TRANSLATIONS = {
     "discord_field_price": {"ja": "現在価格", "en": "Current Price"},
     "discord_field_score": {"ja": "スコア", "en": "Score"},
     "discord_field_time": {"ja": "時刻", "en": "Time"},
+    "discord_cooldown_ready": {"ja": "通知可能", "en": "Ready to notify"},
+    "discord_cooldown_wait": {"ja": "次の通知まで: {m}分", "en": "Next alert in: {m}min"},
+    "discord_kpi_on": {"ja": "Discord: ON", "en": "Discord: ON"},
+    "discord_kpi_off": {"ja": "Discord: OFF", "en": "Discord: OFF"},
     # Analyze status
     "status_collecting": {"ja": "データ収集中", "en": "Collecting Data"},
     "status_collecting_n": {"ja": "データ収集中 ({n} 点)", "en": "Collecting Data ({n} pts)"},
@@ -1366,6 +1370,18 @@ def render_discord_notification_panel():
                                          get_text("discord_no_sent"))
         st.caption(get_text("discord_last_sent", t=last_sent))
 
+        # Cooldown countdown
+        last_dt = st.session_state.get("_discord_sent_dt")
+        if last_dt and isinstance(last_dt, datetime):
+            remaining = timedelta(hours=1) - (datetime.now() - last_dt)
+            if remaining.total_seconds() > 0:
+                mins_left = int(remaining.total_seconds() // 60) + 1
+                st.caption(f"⏳ {get_text('discord_cooldown_wait', m=mins_left)}")
+            else:
+                st.caption(f"✅ {get_text('discord_cooldown_ready')}")
+        else:
+            st.caption(f"✅ {get_text('discord_cooldown_ready')}")
+
     else:
         st.info(f"""
 {get_text("discord_cta_title")}
@@ -1497,6 +1513,18 @@ def main():
                 '</div>',
                 unsafe_allow_html=True,
             )
+
+        # Discord status indicator
+        if st.session_state.get("discord_enabled"):
+            disc_parts = [get_text("discord_kpi_on")]
+            last_dt = st.session_state.get("_discord_sent_dt")
+            if last_dt and isinstance(last_dt, datetime):
+                remaining = timedelta(hours=1) - (datetime.now() - last_dt)
+                if remaining.total_seconds() > 0:
+                    disc_parts.append(f"⏳ {int(remaining.total_seconds() // 60)+1}min")
+                else:
+                    disc_parts.append("✅")
+            st.caption(f"🔔 {' | '.join(disc_parts)}")
 
     with kpi_right:
         render_score_gauge(score)
