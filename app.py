@@ -15,8 +15,8 @@ import plotly.graph_objects as go
 import requests
 import streamlit as st
 from sqlalchemy import create_engine, text
-from filterpy.kalman import KalmanFilter
-from filterpy.common import Q_discrete_white_noise
+from src.kalman import predict_prices as kalman_predict_prices, auto_tune as kalman_auto_tune
+from src.backtest import walk_forward_backtest
 
 # Bounded history reads + default chart span
 QUERY_LIMIT = 50000
@@ -244,6 +244,19 @@ TRANSLATIONS = {
     "trend_up": {"ja": "上昇", "en": "Up"},
     "trend_down": {"ja": "下降", "en": "Down"},
     "pred_ci": {"ja": "95%信頼区間", "en": "95% CI"},
+    # Backtest
+    "backtest_title": {"ja": "バックテスト結果", "en": "Backtest Results"},
+    "backtest_disclaimer": {
+        "ja": "教育目的のみ。投資助言ではありません。",
+        "en": "Educational only. Not financial advice.",
+    },
+    "bt_sharpe": {"ja": "シャープ比", "en": "Sharpe Ratio"},
+    "bt_mdd": {"ja": "最大DD", "en": "Max DD"},
+    "bt_win_rate": {"ja": "勝率", "en": "Win Rate"},
+    "bt_trades": {"ja": "取引回数", "en": "Trades"},
+    "bt_cum_return": {"ja": "累積リターン", "en": "Cumulative Return"},
+    "bt_buyhold": {"ja": "B&H リターン", "en": "B&H Return"},
+    "bt_signal": {"ja": "現在シグナル", "en": "Current Signal"},
     # Indicators
     "indicators_title": {"ja": "テクニカル指標", "en": "Technical Indicators"},
     "signals_title": {"ja": "シグナル一覧", "en": "Signal List"},
@@ -640,43 +653,15 @@ def analyze(df: pd.DataFrame) -> dict:
 # Charts
 # ============================================================================
 
-def _create_price_kalman(initial_price, initial_velocity=0.0):
-    """Create Kalman Filter for price prediction (state: [price, velocity])."""
-    kf = KalmanFilter(dim_x=2, dim_z=1)
-    kf.x = np.array([initial_price, initial_velocity])
-    dt = 1.0  # 1 hour
-    kf.F = np.array([[1., dt], [0., 1.]])
-    kf.H = np.array([[1., 0.]])
-    kf.R = np.array([[50000.**2]])
-    kf.Q = Q_discrete_white_noise(dim=2, dt=dt, var=10000.**2)
-    kf.P = np.eye(2) * 1_000_000.
-    return kf
-
-
 def predict_price_trend(df: pd.DataFrame, hours_ahead: int = 24) -> pd.DataFrame:
-    """Predict future price trend using Kalman Filter."""
+    """Predict future price using log-return Kalman Filter (2D local linear trend).
+    Returns DataFrame with ±1σ bands that don't explode."""
     if len(df) < 50:
         return pd.DataFrame()
 
     try:
-        recent_df = df.tail(min(168, len(df)))
-        prices = recent_df["price"].values
-
-        initial_velocity = float(np.mean(np.diff(prices[:5]))) if len(prices) >= 5 else 0.0
-        kf = _create_price_kalman(prices[0], initial_velocity)
-
-        # Run filter on historical data
-        for price in prices:
-            kf.predict()
-            kf.update(price)
-
-        # Predict future
-        future_prices = []
-        future_stds = []
-        for _ in range(hours_ahead):
-            kf.predict()
-            future_prices.append(float(kf.x[0]))
-            future_stds.append(float(np.sqrt(kf.P[0, 0])))
+        prices = df["price"].values
+        result = kalman_predict_prices(prices, steps=hours_ahead, model="trend")
 
         last_timestamp = df.index[-1]
         future_timestamps = pd.date_range(
@@ -686,11 +671,12 @@ def predict_price_trend(df: pd.DataFrame, hours_ahead: int = 24) -> pd.DataFrame
         )
 
         future_df = pd.DataFrame({
-            "price": future_prices,
-            "std": future_stds,
-            "upper": np.array(future_prices) + 1.96 * np.array(future_stds),
-            "lower": np.array(future_prices) - 1.96 * np.array(future_stds),
+            "price": result["pred_prices"],
+            "upper": result["pred_upper"],
+            "lower": result["pred_lower"],
+            "std": result["pred_returns_std"],
         }, index=future_timestamps)
+        future_df.attrs["filter_stats"] = result["filter_stats"]
         return future_df
 
     except Exception:
@@ -803,6 +789,14 @@ def price_chart_with_prediction(
                 yanchor="bottom",
             )
 
+    # Fix y-axis to history range so prediction band doesn't flatten chart
+    all_prices = df["price"].values
+    y_min = float(np.min(all_prices)) * 0.95
+    y_max = float(np.max(all_prices)) * 1.05
+    if len(prediction_df) > 0:
+        y_max = max(y_max, float(prediction_df["upper"].max()) * 1.01) if "upper" in prediction_df.columns else y_max
+        y_min = min(y_min, float(prediction_df["lower"].min()) * 0.99) if "lower" in prediction_df.columns else y_min
+
     fig.update_layout(
         title=chart_title,
         xaxis_title="", yaxis_title="JPY",
@@ -813,7 +807,7 @@ def price_chart_with_prediction(
         font=dict(color="#c9d1d9"),
         height=420,
         margin=dict(l=0, r=0, t=10, b=0),
-        yaxis=dict(tickformat=","),
+        yaxis=dict(tickformat=",", range=[y_min, y_max]),
     )
 
     if timeframe in ("24h",):
@@ -1596,6 +1590,38 @@ def main():
                     f"±{format_price(prediction_df['std'].iloc[-1]) if 'std' in prediction_df.columns else '---'}",
                 )
                 st.caption(f"{format_price(low)} ~ {format_price(high)}")
+
+    # ── Backtest ──
+    if len(df_price_view) >= 100:
+        with st.expander(get_text("backtest_title"), expanded=False):
+            st.caption(get_text("backtest_disclaimer"))
+            bt = walk_forward_backtest(
+                df_price_view["price"].values,
+                model="trend",
+                horizon=min(prediction_hours, 72),
+                threshold=0.001,
+            )
+            m = bt.get("metrics", {})
+            if m:
+                b1, b2, b3, b4, b5, b6 = st.columns(6)
+                with b1:
+                    st.metric(get_text("bt_sharpe"), f"{m.get('sharpe', 0):.2f}")
+                with b2:
+                    st.metric(get_text("bt_mdd"), f"{m.get('mdd', 0)*100:.2f}%")
+                with b3:
+                    st.metric(get_text("bt_win_rate"), f"{m.get('win_rate', 0)*100:.1f}%")
+                with b4:
+                    st.metric(get_text("bt_trades"), f"{m.get('n_trades', 0)}")
+                with b5:
+                    st.metric(get_text("bt_cum_return"), f"{m.get('cum_return', 0)*100:.2f}%")
+                with b6:
+                    st.metric(get_text("bt_buyhold"), f"{m.get('buyhold_return', 0)*100:.2f}%")
+
+                # Current signal
+                if len(bt.get("signals", [])) > 0:
+                    current_signal = bt["signals"][-1]
+                    sig_color = "🟢" if current_signal == "LONG" else "⚪"
+                    st.markdown(f"**{get_text('bt_signal')}:** {sig_color} {current_signal}")
 
     # ── Score Timeline ──
     st.subheader(get_text("score_timeline"))
