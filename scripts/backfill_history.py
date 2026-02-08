@@ -121,16 +121,21 @@ def main() -> int:
         print("[ERROR] DATABASE_URL is not set")
         return 1
 
+    histoday_days = int(os.getenv("HISTODAY_DAYS", "365"))
+    histohour_hours = int(os.getenv("HISTOHOUR_HOURS", "336"))
+
     url = normalize_url(url)
     engine = create_engine(url, pool_pre_ping=True)
 
-    daily_rows = fetch_histoday(365)
-    print(f"[BACKFILL] histoday fetched={len(daily_rows)} rows")
+    daily_rows = fetch_histoday(histoday_days)
+    print(f"[BACKFILL] histoday fetched={len(daily_rows)} rows (days={histoday_days})")
     inserted_daily = insert_rows(engine, daily_rows)
 
-    hourly_rows = fetch_histohour(336)
-    print(f"[BACKFILL] histohour fetched={len(hourly_rows)} rows")
-    inserted_hourly = insert_rows(engine, hourly_rows)
+    inserted_hourly = 0
+    if histohour_hours > 0:
+        hourly_rows = fetch_histohour(histohour_hours)
+        print(f"[BACKFILL] histohour fetched={len(hourly_rows)} rows (hours={histohour_hours})")
+        inserted_hourly = insert_rows(engine, hourly_rows)
 
     total = inserted_daily + inserted_hourly
     print(f"[DONE] inserted_daily={inserted_daily} inserted_hourly={inserted_hourly} total={total}")
