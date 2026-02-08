@@ -359,6 +359,26 @@ def render_language_selector():
             st.caption(f"$1 ≈ ¥{JPY_TO_USD_RATE:.0f}")
 
 
+def apply_language_metric_tweaks():
+    """Minor font tweak for English metrics to avoid truncation on long values."""
+    if st.session_state.get("lang") != "en":
+        return
+    st.markdown("""
+<style>
+    [data-testid="stMetricValue"] {
+        font-size: 2.0rem !important;
+        line-height: 1.15 !important;
+        white-space: normal !important;
+        overflow: visible !important;
+        text-overflow: clip !important;
+    }
+    @media (max-width: 768px) {
+        [data-testid="stMetricValue"] { font-size: 1.35rem !important; }
+    }
+</style>
+""", unsafe_allow_html=True)
+
+
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
@@ -1422,6 +1442,7 @@ def check_and_send_discord(result: dict, price: float):
 def main():
     # Language selector first
     render_language_selector()
+    apply_language_metric_tweaks()
 
     # Sidebar
     render_quick_start()
