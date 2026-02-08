@@ -316,16 +316,6 @@ def render_language_selector():
                 st.rerun()
 
 
-def detect_mobile_default() -> bool:
-    """Best-effort mobile detection via user-agent (fallback: False)."""
-    try:
-        ua = st.context.headers.get("User-Agent", "")
-    except Exception:
-        ua = ""
-    ua = ua.lower()
-    return any(token in ua for token in ["iphone", "android", "mobile", "ipad"])
-
-
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
@@ -428,7 +418,7 @@ st.markdown("""
 
     /* Mobile tweaks (keep layout, improve readability) */
     @media (max-width: 768px) {
-        .block-container { padding: 0.5rem 0.75rem 1.5rem 0.75rem; }
+        .block-container { padding: 1rem 1rem 2rem 1rem; }
         h1 { font-size: 1.8rem; }
         [data-testid="stMetricValue"] { font-size: 1.6rem !important; }
         [data-testid="stMetricLabel"] { font-size: 0.7rem !important; }
@@ -437,7 +427,7 @@ st.markdown("""
         [data-testid="stPlotlyChart"] > div,
         [data-testid="stPlotlyChart"] .plot-container,
         [data-testid="stPlotlyChart"] .svg-container {
-            height: 480px !important;
+            height: 520px !important;
         }
     }
 </style>
@@ -711,8 +701,7 @@ def price_chart_with_prediction(
     prediction_df: pd.DataFrame,
     chart_title: str,
     timeframe: str,
-    view_range: tuple | None = None,
-    is_mobile: bool = False
+    view_range: tuple | None = None
 ):
     """Plotly price chart with prediction curve."""
     if len(df) == 0:
@@ -799,7 +788,6 @@ def price_chart_with_prediction(
                 yanchor="bottom",
             )
 
-    fig_height = 480 if is_mobile else 700
     fig.update_layout(
         title=chart_title,
         xaxis_title="", yaxis_title="JPY",
@@ -808,7 +796,7 @@ def price_chart_with_prediction(
         paper_bgcolor="#0d1117",
         plot_bgcolor="#161b22",
         font=dict(color="#c9d1d9"),
-        height=fig_height,
+        height=420,
         margin=dict(l=0, r=0, t=10, b=0),
         yaxis=dict(tickformat=","),
     )
@@ -824,15 +812,7 @@ def price_chart_with_prediction(
         # Default view is 2w; zoom out reveals full history.
         fig.update_xaxes(range=view_range)
 
-    if is_mobile:
-        fig.update_xaxes(tickfont=dict(size=12))
-        fig.update_yaxes(tickfont=dict(size=12))
-
-    st.plotly_chart(
-        fig,
-        use_container_width=True,
-        config={"displayModeBar": False} if is_mobile else None,
-    )
+    st.plotly_chart(fig, use_container_width=True)
 
 
 def score_chart(snap: pd.DataFrame):
@@ -1418,11 +1398,6 @@ def main():
     render_language_selector()
 
     # Sidebar
-    if "mobile_view" not in st.session_state:
-        st.session_state["mobile_view"] = detect_mobile_default()
-    st.sidebar.toggle("Mobile view", key="mobile_view")
-    is_mobile = st.session_state["mobile_view"]
-
     render_quick_start()
     render_about_page()
     render_stats_badge()
@@ -1431,14 +1406,13 @@ def main():
     # Hero
     render_landing_hero()
 
-    if not is_mobile:
-        # ========================================
-        # DISCORD NOTIFICATION PANEL (PRIMARY FEATURE)
-        # Placed FIRST after hero - main value proposition
-        # ========================================
-        render_discord_notification_panel()
+    # ========================================
+    # DISCORD NOTIFICATION PANEL (PRIMARY FEATURE)
+    # Placed FIRST after hero - main value proposition
+    # ========================================
+    render_discord_notification_panel()
 
-        st.markdown("---")
+    st.markdown("---")
 
     # Check DB
     try:
@@ -1481,125 +1455,6 @@ def main():
     # Live analysis
     result = analyze(df_price)
     score = result["score"]
-    check_and_send_discord(result, latest_price)
-
-    if is_mobile:
-        if "timeframe" not in st.session_state:
-            st.session_state["timeframe"] = "2w"
-        tf_keys = list(TIMEFRAME_OPTIONS.keys())
-        st.sidebar.selectbox(
-            "Timeframe",
-            tf_keys,
-            index=tf_keys.index(st.session_state["timeframe"]),
-            key="timeframe",
-        )
-
-        active_tf = st.session_state["timeframe"]
-        view_days = TIMEFRAME_OPTIONS[active_tf]
-        prediction_hours = PREDICTION_HOURS[active_tf]
-        if prediction_hours < 48:
-            pred_label = get_text("pred_label_hours", h=prediction_hours)
-        else:
-            pred_label = get_text("pred_label_days", d=prediction_hours // 24)
-        chart_title = get_text("chart_title", tf=active_tf, pred=pred_label)
-
-        df_price_full = load_price_history(None)
-        df_snap_full = load_snapshot_history(None)
-
-        now_ts = pd.Timestamp.utcnow().tz_localize(None)
-        cutoff_dt = now_ts - pd.Timedelta(days=view_days)
-        view_end = now_ts + pd.Timedelta(hours=prediction_hours)
-        if len(df_price_full) > 0 and getattr(df_price_full.index, "tz", None) is not None:
-            df_price_full.index = df_price_full.index.tz_convert("UTC").tz_localize(None)
-        if len(df_snap_full) > 0 and getattr(df_snap_full.index, "tz", None) is not None:
-            df_snap_full.index = df_snap_full.index.tz_convert("UTC").tz_localize(None)
-
-        df_price_view = df_price_full
-        df_snap_view = df_snap_full
-        if len(df_price_view) > 0:
-            df_price_view = df_price_view[df_price_view.index >= cutoff_dt]
-        if len(df_snap_view) > 0:
-            df_snap_view = df_snap_view[df_snap_view.index >= cutoff_dt]
-
-        prediction_df = predict_price_trend(df_price_view, prediction_hours)
-
-        tab_chart, tab_signals, tab_discord = st.tabs(["Chart", "Signals", "Discord"])
-        with tab_chart:
-            st.subheader(chart_title)
-            price_chart_with_prediction(
-                df_price_full,
-                prediction_df,
-                chart_title,
-                active_tf,
-                view_range=(cutoff_dt, view_end),
-                is_mobile=True,
-            )
-        with tab_signals:
-            if len(prediction_df) > 0 and len(df_price_view) > 0:
-                predicted_change = (
-                    (prediction_df["price"].iloc[-1] - df_price_view["price"].iloc[-1])
-                    / df_price_view["price"].iloc[-1] * 100
-                )
-                p1, p2, p3 = st.columns(3)
-                with p1:
-                    st.metric(get_text("pred_current"), f"¥{df_price_view['price'].iloc[-1]:,.0f}")
-                with p2:
-                    if prediction_hours < 48:
-                        hours_text = get_text("pred_hours_later", h=prediction_hours)
-                    else:
-                        hours_text = get_text("pred_days_later", d=prediction_hours // 24)
-                    st.metric(
-                        get_text("pred_future", t=hours_text),
-                        f"¥{prediction_df['price'].iloc[-1]:,.0f}",
-                        delta=f"{predicted_change:+.2f}%"
-                    )
-                with p3:
-                    direction = get_text("trend_up") if predicted_change > 0 else get_text("trend_down")
-                    st.metric(get_text("trend_direction"), direction, delta=f"{abs(predicted_change):.2f}%")
-
-            st.subheader(get_text("score_timeline"))
-            score_chart(df_snap_view)
-
-            st.subheader(get_text("indicators_title"))
-            ind = result["indicators"]
-
-            m1, m2 = st.columns(2)
-            rsi_val = ind.get("rsi", 50)
-            with m1:
-                rsi_tag = get_text("rsi_oversold_tag") if rsi_val < RSI_OVERSOLD else (
-                    get_text("rsi_recovery_tag") if rsi_val < RSI_NEUTRAL else get_text("rsi_neutral_tag"))
-                st.metric("RSI", f"{rsi_val:.1f}", delta=rsi_tag)
-
-            bb_info = ind.get("bb", {})
-            with m2:
-                bw = bb_info.get("width", 0) * 100
-                bb_tag = get_text("bb_squeeze_tag") if bb_info.get("squeeze") else get_text("bb_normal_tag")
-                st.metric(get_text("metric_bb_width"), f"{bw:.2f}%", delta=bb_tag)
-
-            m3, m4 = st.columns(2)
-            macd_info = ind.get("macd", {})
-            with m3:
-                mh = macd_info.get("histogram", 0)
-                macd_tag = get_text("macd_bull_tag") if mh > 0 else get_text("macd_bear_tag")
-                st.metric("MACD", f"{mh:,.0f}", delta=macd_tag)
-
-            vol_info = ind.get("volume", {})
-            with m4:
-                vr = vol_info.get("ratio", 1.0)
-                vol_tag = get_text("vol_increase_tag") if vr >= VOLUME_INCREASE else get_text("vol_normal_tag")
-                st.metric(get_text("metric_vol_ratio"), f"{vr:.2f}x", delta=vol_tag)
-
-            indicator_charts(df_snap_view)
-            st.subheader(get_text("signals_title"))
-            signal_panel(result["signals"], score)
-
-        with tab_discord:
-            render_discord_notification_panel()
-
-        render_footer(len(df_price))
-        time.sleep(60)
-        st.rerun()
-        return
 
     # ── KPI + Score Gauge ──
     kpi_left, kpi_right = st.columns([2, 1])
@@ -1636,6 +1491,9 @@ def main():
 
     with kpi_right:
         render_score_gauge(score)
+
+    # Discord auto-alert
+    check_and_send_discord(result, latest_price)
 
     # ── System Stats ──
     render_system_stats(df_price)
