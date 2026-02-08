@@ -428,6 +428,23 @@ def apply_language_metric_tweaks():
 """, unsafe_allow_html=True)
 
 
+def apply_compact_mobile_chart_tweaks(enabled: bool):
+    """Reduce plot height on small screens only when compact mode is enabled."""
+    if not enabled:
+        return
+    st.markdown("""
+<style>
+@media (max-width: 768px) {
+    [data-testid="stPlotlyChart"] > div,
+    [data-testid="stPlotlyChart"] .plot-container,
+    [data-testid="stPlotlyChart"] .svg-container {
+        height: 320px !important;
+    }
+}
+</style>
+""", unsafe_allow_html=True)
+
+
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
@@ -877,6 +894,9 @@ def free_energy_chart(
     free_energy_features: pd.DataFrame,
     timeframe: str,
     view_range: tuple | None = None,
+    marker_limit: int | None = None,
+    compact_mode: bool = False,
+    legend_mode: str = "default",
 ):
     """Plot free-energy series and highlight detected bottom signals."""
     if len(free_energy_features) == 0 or "free_energy" not in free_energy_features.columns:
@@ -894,6 +914,8 @@ def free_energy_chart(
     if "bottom_signal" in free_energy_features.columns:
         bottoms = free_energy_features[free_energy_features["bottom_signal"]]
         if len(bottoms) > 0:
+            if marker_limit is not None and marker_limit > 0:
+                bottoms = bottoms.tail(int(marker_limit))
             fig.add_trace(go.Scatter(
                 x=bottoms.index,
                 y=bottoms["free_energy"],
@@ -910,9 +932,22 @@ def free_energy_chart(
         paper_bgcolor="#0d1117",
         plot_bgcolor="#161b22",
         font=dict(color="#c9d1d9"),
-        height=260,
+        height=220 if compact_mode else 260,
         margin=dict(l=0, r=0, t=10, b=0),
     )
+
+    if legend_mode == "hidden":
+        fig.update_layout(showlegend=False)
+    elif legend_mode == "horizontal":
+        fig.update_layout(
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="right",
+                x=1,
+            )
+        )
 
     if timeframe in ("24h",):
         fig.update_xaxes(tickformat="%H:%M")
@@ -934,6 +969,9 @@ def price_chart_with_prediction(
     timeframe: str,
     view_range: tuple | None = None,
     free_energy_features: pd.DataFrame | None = None,
+    bottom_marker_limit: int | None = None,
+    compact_mode: bool = False,
+    legend_mode: str = "default",
 ):
     """Plotly price chart with prediction curve."""
     if len(df) == 0:
@@ -968,6 +1006,8 @@ def price_chart_with_prediction(
     if free_energy_features is not None and len(free_energy_features) > 0 and "bottom_signal" in free_energy_features.columns:
         bottoms = free_energy_features[free_energy_features["bottom_signal"]]
         if len(bottoms) > 0:
+            if bottom_marker_limit is not None and bottom_marker_limit > 0:
+                bottoms = bottoms.tail(int(bottom_marker_limit))
             marker_prices = df["price"].reindex(bottoms.index).dropna()
             if len(marker_prices) > 0:
                 marker_kwargs = dict(
@@ -1077,10 +1117,23 @@ def price_chart_with_prediction(
         paper_bgcolor="#0d1117",
         plot_bgcolor="#161b22",
         font=dict(color="#c9d1d9"),
-        height=420,
+        height=360 if compact_mode else 420,
         margin=dict(l=0, r=0, t=10, b=0),
         yaxis=dict(tickformat=",", range=[y_min, y_max]),
     )
+
+    if legend_mode == "hidden":
+        fig.update_layout(showlegend=False)
+    elif legend_mode == "horizontal":
+        fig.update_layout(
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="right",
+                x=1,
+            )
+        )
 
     if timeframe in ("24h",):
         fig.update_xaxes(tickformat="%H:%M")
@@ -1829,6 +1882,42 @@ def main():
         pred_label = get_text("pred_label_days", d=prediction_hours // 24)
     chart_title = get_text("chart_title", tf=active_tf, pred=pred_label)
 
+    if "compact_ui_mode" not in st.session_state:
+        st.session_state["compact_ui_mode"] = False
+    if "compact_marker_limit" not in st.session_state:
+        st.session_state["compact_marker_limit"] = 40
+    if "compact_legend_mode" not in st.session_state:
+        st.session_state["compact_legend_mode"] = "Horizontal"
+
+    with st.expander("Compact UI", expanded=False):
+        st.toggle("Enable compact mode", key="compact_ui_mode")
+        if st.session_state["compact_ui_mode"]:
+            st.slider(
+                "Bottom markers (recent N)",
+                min_value=5,
+                max_value=200,
+                step=5,
+                key="compact_marker_limit",
+            )
+            st.radio(
+                "Legend mode",
+                options=["Horizontal", "Hidden"],
+                key="compact_legend_mode",
+                horizontal=True,
+            )
+            st.caption("Reduce chart height on small screens")
+
+    compact_ui_mode = bool(st.session_state["compact_ui_mode"])
+    compact_marker_limit = int(st.session_state["compact_marker_limit"]) if compact_ui_mode else None
+    compact_legend_mode = st.session_state["compact_legend_mode"] if compact_ui_mode else "Default"
+    if compact_legend_mode == "Hidden":
+        legend_mode = "hidden"
+    elif compact_legend_mode == "Horizontal":
+        legend_mode = "horizontal"
+    else:
+        legend_mode = "default"
+    apply_compact_mobile_chart_tweaks(compact_ui_mode)
+
     df_price_full = load_price_history(None)
     df_snap_full = load_snapshot_history(None)
 
@@ -1868,14 +1957,31 @@ def main():
         active_tf,
         view_range=(cutoff_dt, view_end),
         free_energy_features=free_energy_features_full,
+        bottom_marker_limit=compact_marker_limit,
+        compact_mode=compact_ui_mode,
+        legend_mode=legend_mode,
     )
 
-    st.subheader(get_text("free_energy_title"))
-    free_energy_chart(
-        free_energy_features_view,
-        active_tf,
-        view_range=(cutoff_dt, now_ts),
-    )
+    if compact_ui_mode:
+        with st.expander(get_text("free_energy_title"), expanded=False):
+            free_energy_chart(
+                free_energy_features_view,
+                active_tf,
+                view_range=(cutoff_dt, now_ts),
+                marker_limit=compact_marker_limit,
+                compact_mode=True,
+                legend_mode=legend_mode,
+            )
+    else:
+        st.subheader(get_text("free_energy_title"))
+        free_energy_chart(
+            free_energy_features_view,
+            active_tf,
+            view_range=(cutoff_dt, now_ts),
+            marker_limit=None,
+            compact_mode=False,
+            legend_mode="default",
+        )
     if len(df_price_features_csv) > 0:
         csv_bytes = df_price_features_csv.to_csv(index_label="datetime").encode("utf-8-sig")
         st.download_button(
