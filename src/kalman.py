@@ -26,7 +26,7 @@ AUTO_TUNE_MIN_RETURNS = {
     "baseline": 40,
     "trend": 60,
 }
-CI_Z = 1.0  # ±1σ (about 68%)
+CI_Z = 1.96  # 95% interval under normal approximation
 
 
 # ---------------------------------------------------------------------------
@@ -239,8 +239,8 @@ def predict_prices(
 
     Returns dict:
         pred_prices: (steps,) predicted price mean
-        pred_upper:  (steps,) +1σ price
-        pred_lower:  (steps,) -1σ price
+        pred_upper:  (steps,) upper prediction band (95%)
+        pred_lower:  (steps,) lower prediction band (95%)
         pred_returns_mean: (steps,) predicted mean returns
         pred_returns_std:  (steps,) predicted std of returns
         pred_price_ci_half_width: (steps,) band half-width in price units
@@ -309,7 +309,7 @@ def auto_tune(
     Light grid search over Q_mult and R_mult to minimize 1-step MSE
     on the last `eval_window` observations.
 
-    Returns dict with best_R_mult, best_Q_mult, best_mse, all_results, elapsed_s.
+    Returns dict with best_R_mult, best_Q_mult, best_mse, grid_size, elapsed_s.
     """
     model = _validate_model(model)
     if eval_window < 1:

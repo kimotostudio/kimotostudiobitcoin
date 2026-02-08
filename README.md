@@ -30,7 +30,8 @@ Catch Bitcoin bottoms without watching charts 24/7. Get automatic Discord notifi
 
 ### Advanced Visualization
 - **Multi-timeframe Charts** - 24h / 1w / 2w / 1m views
-- **Price Predictions** - Linear regression forecasting
+- **Default View** - 1w timeframe on first load
+- **Price Predictions** - Kalman filter forecasting
 - **Confidence Intervals** - Statistical uncertainty bands
 - **Interactive Plotly Charts** - Zoom, pan, hover tooltips
 
@@ -78,7 +79,7 @@ Catch Bitcoin bottoms without watching charts 24/7. Get automatic Discord notifi
 |----------|-----------|
 | Frontend | [Streamlit](https://streamlit.io), [Plotly](https://plotly.com), Custom CSS |
 | Backend | Python 3.10+, [pandas](https://pandas.pydata.org), [NumPy](https://numpy.org) |
-| ML | [scikit-learn](https://scikit-learn.org) (Linear Regression), [SciPy](https://scipy.org) |
+| ML | Custom Kalman filter (NumPy) |
 | Database | [PostgreSQL](https://postgresql.org) ([Neon](https://neon.tech) serverless) |
 | Data | [bitFlyer API](https://bitflyer.com) (real-time BTC/JPY) |
 | Hosting | [Streamlit Cloud](https://streamlit.io/cloud), VPS (monitoring daemon) |
@@ -145,9 +146,9 @@ bitFlyer API -> VPS Monitor (60s) -> PostgreSQL -> Streamlit App -> Discord
 
 ### Prediction Model
 
-- **Algorithm:** Linear regression on 7-day window
+- **Algorithm:** Kalman filter on log-returns (local linear trend)
 - **Forecast:** Up to 7 days ahead
-- **Confidence:** Standard deviation bands
+- **Confidence:** 95% prediction interval band
 - **Update:** Every 60 seconds
 
 ---

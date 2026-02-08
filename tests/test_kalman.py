@@ -146,7 +146,7 @@ class TestPredictPrices:
         assert np.allclose(result["pred_price_ci_half_width"], expected)
 
     def test_band_not_exploding(self):
-        """±1σ band should NOT explode to ridiculous multiples of price."""
+        """95% band should NOT explode to ridiculous multiples of price."""
         prices = _synthetic_prices(500)
         result = predict_prices(prices, steps=48, model="trend")
         last_price = prices[-1]
@@ -230,8 +230,8 @@ class TestModelValidation:
 class TestAppKalmanUiContract:
     def test_ci_label_matches_sigma_factor(self):
         app_text = Path("app.py").read_text(encoding="utf-8")
-        assert "±1σ (68%)" in app_text
-        assert np.isclose(CI_Z, 1.0)
+        assert "95% CI" in app_text
+        assert np.isclose(CI_Z, 1.96)
 
     def test_ci_metric_uses_price_unit_source(self):
         app_text = Path("app.py").read_text(encoding="utf-8")
@@ -242,3 +242,15 @@ class TestAppKalmanUiContract:
         app_text = Path("app.py").read_text(encoding="utf-8")
         assert 'freq="h"' in app_text
         assert 'freq="H"' not in app_text
+
+    def test_timeframe_options_up_to_one_month(self):
+        app_text = Path("app.py").read_text(encoding="utf-8")
+        assert 'TIMEFRAME_OPTIONS = {"24h": 1, "1w": 7, "2w": 14, "1m": 30}' in app_text
+        assert '"3m"' not in app_text
+        assert '"6m"' not in app_text
+        assert '"1y"' not in app_text
+        assert '"5y"' not in app_text
+
+    def test_default_timeframe_is_one_week(self):
+        app_text = Path("app.py").read_text(encoding="utf-8")
+        assert 'st.session_state["timeframe"] = "1w"' in app_text

@@ -15,14 +15,14 @@ import plotly.graph_objects as go
 import requests
 import streamlit as st
 from sqlalchemy import create_engine, text
-from src.kalman import predict_prices as kalman_predict_prices, auto_tune as kalman_auto_tune
+from src.kalman import predict_prices as kalman_predict_prices
 from src.backtest import walk_forward_backtest
 
 # Bounded history reads + default chart span
 QUERY_LIMIT = 50000
 DEFAULT_VIEW_DAYS = 30
-TIMEFRAME_OPTIONS = {"24h": 1, "1w": 7, "2w": 14, "1m": 30, "3m": 90, "6m": 180, "1y": 365, "5y": 1825}
-PREDICTION_HOURS = {"24h": 24, "1w": 72, "2w": 336, "1m": 168, "3m": 168, "6m": 168, "1y": 168, "5y": 168}
+TIMEFRAME_OPTIONS = {"24h": 1, "1w": 7, "2w": 14, "1m": 30}
+PREDICTION_HOURS = {"24h": 24, "1w": 72, "2w": 336, "1m": 168}
 
 # Import core indicator functions from btc_monitor (same repo)
 try:
@@ -248,7 +248,7 @@ TRANSLATIONS = {
     "trend_direction": {"ja": "トレンド方向", "en": "Trend Direction"},
     "trend_up": {"ja": "上昇", "en": "Up"},
     "trend_down": {"ja": "下降", "en": "Down"},
-    "pred_ci": {"ja": "±1σ (68%)", "en": "±1σ (68%)"},
+    "pred_ci": {"ja": "95%信頼区間", "en": "95% CI"},
     # Backtest
     "backtest_title": {"ja": "バックテスト結果", "en": "Backtest Results"},
     "backtest_disclaimer": {
@@ -660,7 +660,7 @@ def analyze(df: pd.DataFrame) -> dict:
 
 def predict_price_trend(df: pd.DataFrame, hours_ahead: int = 24) -> pd.DataFrame:
     """Predict future price using log-return Kalman Filter (2D local linear trend).
-    Returns DataFrame with ±1σ bands that don't explode."""
+    Returns DataFrame with 95% prediction bands that don't explode."""
     if len(df) < 50:
         return pd.DataFrame()
 
@@ -797,13 +797,10 @@ def price_chart_with_prediction(
                 yanchor="bottom",
             )
 
-    # Fix y-axis to history range so prediction band doesn't flatten chart
+    # Keep y-axis based on observed history so wide CI bands don't flatten the chart
     all_prices = df["price"].values
     y_min = float(np.min(all_prices)) * 0.95
     y_max = float(np.max(all_prices)) * 1.05
-    if len(prediction_df) > 0:
-        y_max = max(y_max, float(prediction_df["upper"].max()) * 1.01) if "upper" in prediction_df.columns else y_max
-        y_min = min(y_min, float(prediction_df["lower"].min()) * 0.99) if "lower" in prediction_df.columns else y_min
 
     fig.update_layout(
         title=chart_title,
@@ -1543,8 +1540,8 @@ def main():
 
     # ── Timeframe Selector ──
     tf_cols = st.columns(len(TIMEFRAME_OPTIONS))
-    if "timeframe" not in st.session_state:
-        st.session_state["timeframe"] = "1m"
+    if "timeframe" not in st.session_state or st.session_state["timeframe"] not in TIMEFRAME_OPTIONS:
+        st.session_state["timeframe"] = "1w"
     for i, (tf_key, tf_days) in enumerate(TIMEFRAME_OPTIONS.items()):
         with tf_cols[i]:
             btn_type = "primary" if st.session_state["timeframe"] == tf_key else "secondary"
@@ -1620,17 +1617,11 @@ def main():
             if "lower" in prediction_df.columns and "upper" in prediction_df.columns:
                 low = prediction_df["lower"].iloc[-1]
                 high = prediction_df["upper"].iloc[-1]
-                if "ci_price_half_width" in prediction_df.columns:
-                    ci_half_width = prediction_df["ci_price_half_width"].iloc[-1]
-                else:
-                    ci_half_width = (high - low) / 2.0
-                ci_text = f"±{format_price(ci_half_width)}" if pd.notna(ci_half_width) else "---"
+                ci_text = f"{format_price(low)} ~ {format_price(high)}" if (pd.notna(low) and pd.notna(high)) else "---"
                 st.metric(
                     get_text("pred_ci"),
                     ci_text,
                 )
-                if pd.notna(low) and pd.notna(high):
-                    st.caption(f"{format_price(low)} ~ {format_price(high)}")
 
     # ── Backtest ──
     if len(df_price_view) >= 100:
