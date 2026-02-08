@@ -415,6 +415,16 @@ st.markdown("""
     ::-webkit-scrollbar-thumb {
         background: linear-gradient(135deg, #10b981, #059669); border-radius: 5px;
     }
+
+    /* Mobile tweaks (keep layout, improve readability) */
+    @media (max-width: 768px) {
+        .block-container { padding: 1rem 1rem 2rem 1rem; }
+        h1 { font-size: 1.8rem; }
+        [data-testid="stMetricValue"] { font-size: 1.6rem !important; }
+        [data-testid="stMetricLabel"] { font-size: 0.7rem !important; }
+        .stButton > button { padding: 0.5rem 0.75rem; font-size: 0.85rem; }
+        .signal-box { font-size: 0.9rem; padding: 0.75rem 1rem; }
+    }
 </style>
 """, unsafe_allow_html=True)
 
