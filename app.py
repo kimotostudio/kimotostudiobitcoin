@@ -424,6 +424,11 @@ st.markdown("""
         [data-testid="stMetricLabel"] { font-size: 0.7rem !important; }
         .stButton > button { padding: 0.5rem 0.75rem; font-size: 0.85rem; }
         .signal-box { font-size: 0.9rem; padding: 0.75rem 1rem; }
+        [data-testid="stPlotlyChart"] > div,
+        [data-testid="stPlotlyChart"] .plot-container,
+        [data-testid="stPlotlyChart"] .svg-container {
+            height: 520px !important;
+        }
     }
 </style>
 """, unsafe_allow_html=True)
