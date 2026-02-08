@@ -32,7 +32,8 @@ Catch Bitcoin bottoms without watching charts 24/7. Get automatic Discord notifi
 - **Multi-timeframe Charts** - 24h / 1w / 2w / 1m views
 - **Default View** - 1w timeframe on first load
 - **Price Predictions** - Kalman filter forecasting
-- **Confidence Intervals** - Statistical uncertainty bands
+- **Confidence Intervals** - 95% prediction interval band (price space)
+- **Free Energy Bottom Signal** - Drift/variance-based bottom markers
 - **Interactive Plotly Charts** - Zoom, pan, hover tooltips
 
 ### Multi-language Support
@@ -148,7 +149,8 @@ bitFlyer API -> VPS Monitor (60s) -> PostgreSQL -> Streamlit App -> Discord
 
 - **Algorithm:** Kalman filter on log-returns (local linear trend)
 - **Forecast:** Up to 7 days ahead
-- **Confidence:** 95% prediction interval band
+- **Confidence:** 95% prediction interval band in JPY price units
+- **Bottom Signal:** Free energy local minima + drift sign flip
 - **Update:** Every 60 seconds
 
 ---

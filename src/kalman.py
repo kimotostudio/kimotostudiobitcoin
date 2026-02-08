@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import time
 import numpy as np
+import pandas as pd
 
 SUPPORTED_MODELS = ("baseline", "trend")
 MIN_PRICES_REQUIRED = {
@@ -27,6 +28,7 @@ AUTO_TUNE_MIN_RETURNS = {
     "trend": 60,
 }
 CI_Z = 1.96  # 95% interval under normal approximation
+FREE_ENERGY_EPS = 1e-12
 
 
 # ---------------------------------------------------------------------------
@@ -208,6 +210,11 @@ def kalman_predict(
         mean_returns: (steps,) predicted mean log-return per step
         var_returns:  (steps,) predicted observation variance per step
     """
+    if steps < 0:
+        raise ValueError(f"steps must be >= 0, got {steps}")
+    if steps == 0:
+        return np.zeros(0, dtype=float), np.zeros(0, dtype=float)
+
     F = filt_result["F"]
     H = filt_result["H"]
     Q = filt_result["Q"]
@@ -225,6 +232,50 @@ def kalman_predict(
         variances[k] = (H @ P @ H.T + R).item()
 
     return means, variances
+
+
+def _predict_cumulative_return_variance(
+    filt_result: dict,
+    steps: int,
+) -> np.ndarray:
+    """
+    Predict cumulative variance of sum of future returns up to each horizon.
+    Includes cross-step covariance terms induced by state dynamics.
+    """
+    if steps < 0:
+        raise ValueError(f"steps must be >= 0, got {steps}")
+    if steps == 0:
+        return np.zeros(0, dtype=float)
+
+    x_hist = filt_result.get("x_filtered")
+    p_hist = filt_result.get("P_filtered")
+    if x_hist is None or p_hist is None or len(x_hist) == 0 or len(p_hist) == 0:
+        return np.full(steps, np.nan, dtype=float)
+
+    F = filt_result["F"]
+    H = filt_result["H"]
+    Q = filt_result["Q"]
+    R = filt_result["R"]
+
+    x = x_hist[-1].copy()
+    P = p_hist[-1].copy()
+    cov_x_s = np.zeros((len(x), 1), dtype=float)  # Cov(x_k, S_{k-1})
+    var_s = 0.0
+    cum_var = np.zeros(steps, dtype=float)
+
+    for k in range(steps):
+        x, P = _predict(x, P, F, Q)
+        cov_x_s = F @ cov_x_s
+
+        var_r = max((H @ P @ H.T + R).item(), 0.0)
+        cross = (H @ cov_x_s).item()
+        var_s = max(var_s + var_r + (2.0 * cross), 0.0)
+        cum_var[k] = var_s
+
+        # Cov(x_k, S_k) = Cov(x_k, S_{k-1}) + Cov(x_k, r_k)
+        cov_x_s = cov_x_s + (P @ H.T)
+
+    return cum_var
 
 
 def predict_prices(
@@ -252,6 +303,27 @@ def predict_prices(
 
     t0 = time.time()
     prices = np.asarray(prices, dtype=float)
+    if steps == 0:
+        elapsed = time.time() - t0
+        empty = np.zeros(0, dtype=float)
+        return {
+            "pred_prices": empty.copy(),
+            "pred_upper": empty.copy(),
+            "pred_lower": empty.copy(),
+            "pred_returns_mean": empty.copy(),
+            "pred_returns_std": empty.copy(),
+            "pred_price_ci_half_width": empty.copy(),
+            "filter_stats": {
+                "model": model,
+                "n_obs": max(len(prices) - 1, 0),
+                "prediction_steps": 0,
+                "ci_z": CI_Z,
+                "fallback": False,
+                "elapsed_s": round(elapsed, 4),
+            },
+            "warning": None,
+        }
+
     min_prices = MIN_PRICES_REQUIRED[model]
     if len(prices) < min_prices:
         warning = f"insufficient_prices: need >= {min_prices}, got {len(prices)}"
@@ -269,7 +341,7 @@ def predict_prices(
     # Reconstruct price path from last observed price
     last_log_price = np.log(float(prices[-1]))
     cum_mean = np.cumsum(mean_r)
-    cum_var = np.cumsum(var_r)  # variances add for independent steps
+    cum_var = _predict_cumulative_return_variance(filt, steps)
     cum_std = np.sqrt(np.maximum(cum_var, 0))
 
     pred_log_prices = last_log_price + cum_mean
@@ -298,6 +370,114 @@ def predict_prices(
         "filter_stats": stats,
         "warning": None,
     }
+
+
+def compute_free_energy_series(
+    prices: np.ndarray,
+    model: str = "trend",
+    R_mult: float = 1.0,
+    Q_mult: float = 1.0,
+    eps: float = FREE_ENERGY_EPS,
+) -> pd.DataFrame:
+    """
+    Compute 1-step predictive free energy series on log returns.
+
+    Columns:
+        mu: 1-step predictive mean return
+        sigma2: 1-step predictive observation variance
+        free_energy: -(mu^2) / sigma2
+    """
+    model = _validate_model(model)
+    prices_arr = np.asarray(prices, dtype=float)
+    if len(prices_arr) < MIN_PRICES_REQUIRED[model]:
+        return pd.DataFrame(columns=["mu", "sigma2", "free_energy"])
+    if np.any(prices_arr <= 0):
+        raise ValueError("prices must be strictly positive for log-return modeling")
+
+    returns = log_returns(prices_arr)
+    filt = kalman_filter(returns, model=model, R_mult=R_mult, Q_mult=Q_mult)
+    F, H, Q, R = filt["F"], filt["H"], filt["Q"], filt["R"]
+
+    if model == "baseline":
+        _, _, _, _, x, P = _build_baseline(float(R[0, 0]), float(Q[0, 0]))
+    else:
+        _, _, _, _, x, P = _build_trend(float(R[0, 0]), float(Q[0, 0]), float(Q[1, 1]))
+
+    N = len(returns)
+    mu = np.zeros(N, dtype=float)
+    sigma2 = np.zeros(N, dtype=float)
+    free_energy = np.zeros(N, dtype=float)
+
+    for t in range(N):
+        x_pred, P_pred = _predict(x, P, F, Q)
+        mu_t = (H @ x_pred).item()
+        sigma2_t = max((H @ P_pred @ H.T + R).item(), eps)
+        mu[t] = mu_t
+        sigma2[t] = sigma2_t
+        free_energy[t] = -((mu_t * mu_t) / sigma2_t)
+        x, P = _update(x_pred, P_pred, returns[t], H, R)
+
+    index = None
+    if hasattr(prices, "index") and len(prices.index) == len(prices_arr):
+        index = prices.index[1:]
+    if index is None:
+        index = pd.RangeIndex(start=0, stop=N, step=1)
+
+    return pd.DataFrame(
+        {
+            "mu": mu,
+            "sigma2": sigma2,
+            "free_energy": free_energy,
+        },
+        index=index,
+    )
+
+
+def detect_bottom_signal(
+    free_energy: np.ndarray,
+    mu: np.ndarray,
+    w: int = 5,
+    k: int = 3,
+) -> np.ndarray:
+    """
+    Bottom signal detection:
+      - free_energy is a local minimum within +/- w
+      - mu crosses from negative to positive within +/- k
+    """
+    free_energy = np.asarray(free_energy, dtype=float)
+    mu = np.asarray(mu, dtype=float)
+    if len(free_energy) != len(mu):
+        raise ValueError("free_energy and mu must have the same length")
+    if len(free_energy) == 0:
+        return np.zeros(0, dtype=bool)
+
+    w = max(int(w), 1)
+    k = max(int(k), 1)
+    n = len(free_energy)
+    out = np.zeros(n, dtype=bool)
+
+    for i in range(n):
+        if not np.isfinite(free_energy[i]):
+            continue
+        left = max(0, i - w)
+        right = min(n, i + w + 1)
+        local_window = free_energy[left:right]
+        local_window = local_window[np.isfinite(local_window)]
+        if len(local_window) == 0:
+            continue
+        is_local_min = free_energy[i] <= float(np.min(local_window))
+
+        j_start = max(0, i - k)
+        j_end = min(n - 1, i + k)
+        has_mu_flip = False
+        for j in range(j_start, j_end):
+            if np.isfinite(mu[j]) and np.isfinite(mu[j + 1]) and (mu[j] < 0.0 <= mu[j + 1]):
+                has_mu_flip = True
+                break
+
+        out[i] = is_local_min and has_mu_flip
+
+    return out
 
 
 def auto_tune(

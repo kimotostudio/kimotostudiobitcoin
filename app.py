@@ -15,7 +15,11 @@ import plotly.graph_objects as go
 import requests
 import streamlit as st
 from sqlalchemy import create_engine, text
-from src.kalman import predict_prices as kalman_predict_prices
+from src.kalman import (
+    predict_prices as kalman_predict_prices,
+    compute_free_energy_series as kalman_compute_free_energy_series,
+    detect_bottom_signal as kalman_detect_bottom_signal,
+)
 from src.backtest import walk_forward_backtest
 
 # Bounded history reads + default chart span
@@ -236,6 +240,11 @@ TRANSLATIONS = {
     "price_collecting": {"ja": "価格データを収集中...", "en": "Collecting price data..."},
     "pred_error": {"ja": "予測計算エラー", "en": "Prediction calculation error"},
     "pred_warning": {"ja": "予測フォールバック: {msg}", "en": "Prediction fallback: {msg}"},
+    "free_energy_title": {"ja": "Free Energy", "en": "Free Energy"},
+    "free_energy_line": {"ja": "Free Energy系列", "en": "Free Energy"},
+    "free_energy_bottom": {"ja": "Bottomシグナル", "en": "Bottom Signal"},
+    "free_energy_price_markers": {"ja": "Bottomマーカー", "en": "Bottom Markers"},
+    "free_energy_csv": {"ja": "Free Energy付きCSVをダウンロード", "en": "Download CSV with Free Energy"},
     "pred_ma_error": {"ja": "移動平均予測エラー", "en": "Moving average prediction error"},
     "score_timeline": {"ja": "スコア推移", "en": "Score Timeline"},
     "threshold_label": {"ja": "閾値", "en": "Threshold"},
@@ -746,12 +755,111 @@ def predict_price_trend(df: pd.DataFrame, hours_ahead: int = 24) -> pd.DataFrame
         st.warning(get_text("pred_error"))
         return pd.DataFrame()
 
+
+def compute_bottom_signal_series(
+    free_energy_df: pd.DataFrame,
+    w: int = 5,
+    k: int = 3,
+) -> pd.Series:
+    """Bottom signal based on local free-energy minima + drift sign flip."""
+    if len(free_energy_df) == 0 or "free_energy" not in free_energy_df.columns or "mu" not in free_energy_df.columns:
+        return pd.Series(dtype=bool, index=free_energy_df.index if len(free_energy_df) > 0 else None)
+    signal = kalman_detect_bottom_signal(
+        free_energy_df["free_energy"].values,
+        free_energy_df["mu"].values,
+        w=w,
+        k=k,
+    )
+    return pd.Series(signal.astype(bool), index=free_energy_df.index, name="bottom_signal")
+
+
+def compute_free_energy_features(df: pd.DataFrame) -> pd.DataFrame:
+    """Compute free-energy features and bottom signal aligned to price index[1:]."""
+    if len(df) < 3 or "price" not in df.columns:
+        return pd.DataFrame(columns=["kalman_mu", "kalman_sigma2", "free_energy", "bottom_signal"])
+    try:
+        fe = kalman_compute_free_energy_series(df["price"], model="trend")
+        if len(fe) == 0:
+            return pd.DataFrame(columns=["kalman_mu", "kalman_sigma2", "free_energy", "bottom_signal"])
+        fe["bottom_signal"] = compute_bottom_signal_series(fe)
+        fe = fe.rename(columns={"mu": "kalman_mu", "sigma2": "kalman_sigma2"})
+        return fe[["kalman_mu", "kalman_sigma2", "free_energy", "bottom_signal"]]
+    except Exception:
+        return pd.DataFrame(columns=["kalman_mu", "kalman_sigma2", "free_energy", "bottom_signal"])
+
+
+def build_price_feature_csv_df(df_price: pd.DataFrame, free_energy_features: pd.DataFrame) -> pd.DataFrame:
+    """Append Kalman free-energy features to existing price DataFrame for CSV export."""
+    if len(df_price) == 0:
+        return pd.DataFrame()
+    out = df_price.copy()
+    out = out.join(free_energy_features, how="left")
+    if "bottom_signal" in out.columns:
+        out["bottom_signal"] = out["bottom_signal"].fillna(False).astype(bool)
+    return out
+
+
+def free_energy_chart(
+    free_energy_features: pd.DataFrame,
+    timeframe: str,
+    view_range: tuple | None = None,
+):
+    """Plot free-energy series and highlight detected bottom signals."""
+    if len(free_energy_features) == 0 or "free_energy" not in free_energy_features.columns:
+        return
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=free_energy_features.index,
+        y=free_energy_features["free_energy"],
+        mode="lines",
+        name=get_text("free_energy_line"),
+        line=dict(color="#a78bfa", width=2),
+    ))
+
+    if "bottom_signal" in free_energy_features.columns:
+        bottoms = free_energy_features[free_energy_features["bottom_signal"]]
+        if len(bottoms) > 0:
+            fig.add_trace(go.Scatter(
+                x=bottoms.index,
+                y=bottoms["free_energy"],
+                mode="markers",
+                name=get_text("free_energy_bottom"),
+                marker=dict(color="#f97316", size=10, symbol="diamond"),
+            ))
+
+    fig.update_layout(
+        xaxis_title="",
+        yaxis_title="Free Energy",
+        hovermode="x unified",
+        template="plotly_dark",
+        paper_bgcolor="#0d1117",
+        plot_bgcolor="#161b22",
+        font=dict(color="#c9d1d9"),
+        height=260,
+        margin=dict(l=0, r=0, t=10, b=0),
+    )
+
+    if timeframe in ("24h",):
+        fig.update_xaxes(tickformat="%H:%M")
+    elif timeframe in ("1w", "2w"):
+        fig.update_xaxes(tickformat="%m/%d %H:%M")
+    else:
+        fig.update_xaxes(tickformat="%m/%d")
+
+    if view_range is not None:
+        fig.update_xaxes(range=view_range)
+
+    st.plotly_chart(fig, use_container_width=True)
+
+
 def price_chart_with_prediction(
     df: pd.DataFrame,
     prediction_df: pd.DataFrame,
     chart_title: str,
     timeframe: str,
-    view_range: tuple | None = None
+    view_range: tuple | None = None,
+    free_energy_features: pd.DataFrame | None = None,
 ):
     """Plotly price chart with prediction curve."""
     if len(df) == 0:
@@ -782,6 +890,36 @@ def price_chart_with_prediction(
     if main_customdata is not None:
         trace_kwargs["customdata"] = main_customdata
     fig.add_trace(go.Scatter(**trace_kwargs))
+
+    if free_energy_features is not None and len(free_energy_features) > 0 and "bottom_signal" in free_energy_features.columns:
+        bottoms = free_energy_features[free_energy_features["bottom_signal"]]
+        if len(bottoms) > 0:
+            marker_prices = df["price"].reindex(bottoms.index).dropna()
+            if len(marker_prices) > 0:
+                marker_kwargs = dict(
+                    x=marker_prices.index,
+                    y=marker_prices.values,
+                    mode="markers",
+                    name=get_text("free_energy_price_markers"),
+                    marker=dict(
+                        color="#f97316",
+                        size=10,
+                        symbol="diamond",
+                        line=dict(color="#fb923c", width=1),
+                    ),
+                )
+                if is_en:
+                    marker_kwargs["customdata"] = (marker_prices.values / JPY_TO_USD_RATE)
+                    marker_kwargs["hovertemplate"] = (
+                        "Bottom Signal<br>ﾂ･%{y:,.0f} ($%{customdata:,.0f})"
+                        "<br>%{x|%Y-%m-%d %H:%M}<extra></extra>"
+                    )
+                else:
+                    marker_kwargs["hovertemplate"] = (
+                        "Bottom Signal<br>%{y:,.0f} JPY"
+                        "<br>%{x|%Y-%m-%d %H:%M}<extra></extra>"
+                    )
+                fig.add_trace(go.Scatter(**marker_kwargs))
 
     if len(prediction_df) > 0:
         last_point = df.iloc[-1]
@@ -878,7 +1016,7 @@ def price_chart_with_prediction(
         fig.update_xaxes(tickformat="%m/%d")
 
     if view_range is not None:
-        # Default view is 2w; zoom out reveals full history.
+        # Default view is 1w; zoom out reveals full history.
         fig.update_xaxes(range=view_range)
 
     st.plotly_chart(fig, use_container_width=True)
@@ -1635,6 +1773,12 @@ def main():
     if len(df_snap_view) > 0:
         df_snap_view = df_snap_view[df_snap_view.index >= cutoff_dt]
 
+    free_energy_features_full = compute_free_energy_features(df_price_full)
+    free_energy_features_view = free_energy_features_full
+    if len(free_energy_features_view) > 0:
+        free_energy_features_view = free_energy_features_view[free_energy_features_view.index >= cutoff_dt]
+    df_price_features_csv = build_price_feature_csv_df(df_price_full, free_energy_features_full)
+
     prediction_df = predict_price_trend(df_price_view, prediction_hours)
     prediction_warning = prediction_df.attrs.get("prediction_warning") if len(prediction_df) > 0 else None
     if prediction_warning:
@@ -1648,7 +1792,24 @@ def main():
         chart_title,
         active_tf,
         view_range=(cutoff_dt, view_end),
+        free_energy_features=free_energy_features_full,
     )
+
+    st.subheader(get_text("free_energy_title"))
+    free_energy_chart(
+        free_energy_features_view,
+        active_tf,
+        view_range=(cutoff_dt, now_ts),
+    )
+    if len(df_price_features_csv) > 0:
+        csv_bytes = df_price_features_csv.to_csv(index_label="datetime").encode("utf-8-sig")
+        st.download_button(
+            get_text("free_energy_csv"),
+            data=csv_bytes,
+            file_name="btc_with_kalman_free_energy.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
 
     if len(prediction_df) > 0 and len(df_price_view) > 0:
         predicted_change = (

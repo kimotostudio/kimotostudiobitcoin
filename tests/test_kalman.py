@@ -7,7 +7,10 @@ import pytest
 from src.kalman import (
     CI_Z,
     MIN_PRICES_REQUIRED,
+    _predict_cumulative_return_variance,
     auto_tune,
+    compute_free_energy_series,
+    detect_bottom_signal,
     kalman_filter,
     kalman_predict,
     log_returns,
@@ -132,11 +135,15 @@ class TestPredictPrices:
         prices = _synthetic_prices(300)
         result = predict_prices(prices, steps=24, model="trend")
 
-        cum_std = np.sqrt(np.cumsum(np.square(result["pred_returns_std"])))
+        rets = log_returns(prices)
+        filt = kalman_filter(rets, model="trend")
+        cum_var = _predict_cumulative_return_variance(filt, steps=24)
+        cum_std = np.sqrt(np.maximum(cum_var, 0.0))
         expected_upper = result["pred_prices"] * np.exp(CI_Z * cum_std)
         expected_lower = result["pred_prices"] * np.exp(-CI_Z * cum_std)
         assert np.allclose(result["pred_upper"], expected_upper)
         assert np.allclose(result["pred_lower"], expected_lower)
+        assert np.isclose(result["filter_stats"]["ci_z"], CI_Z)
 
     def test_price_ci_half_width_units(self):
         """CI metric source should be in price units, not return std units."""
@@ -180,6 +187,17 @@ class TestAutoTune:
 
 
 class TestShortSeriesFallback:
+    def test_predict_prices_steps_zero(self):
+        prices = _synthetic_prices(120)
+        result = predict_prices(prices, steps=0, model="trend")
+        assert result["warning"] is None
+        assert len(result["pred_prices"]) == 0
+        assert len(result["pred_upper"]) == 0
+        assert len(result["pred_lower"]) == 0
+        assert len(result["pred_returns_mean"]) == 0
+        assert len(result["pred_returns_std"]) == 0
+        assert len(result["pred_price_ci_half_width"]) == 0
+
     def test_predict_prices_len_1_trend(self):
         prices = np.array([100.0])
         result = predict_prices(prices, steps=8, model="trend")
@@ -254,3 +272,30 @@ class TestAppKalmanUiContract:
     def test_default_timeframe_is_one_week(self):
         app_text = Path("app.py").read_text(encoding="utf-8")
         assert 'st.session_state["timeframe"] = "1w"' in app_text
+
+
+class TestCumulativeVarianceAndFreeEnergy:
+    def test_cumulative_variance_non_negative_and_non_decreasing(self):
+        prices = _synthetic_prices(260)
+        rets = log_returns(prices)
+        filt = kalman_filter(rets, model="trend")
+        cum_var = _predict_cumulative_return_variance(filt, steps=36)
+        assert np.all(cum_var >= 0.0)
+        assert np.all(np.diff(cum_var) >= -1e-12)
+
+    def test_free_energy_series_finite(self):
+        prices = _synthetic_prices(220)
+        fe = compute_free_energy_series(prices, model="trend")
+        assert len(fe) == len(prices) - 1
+        assert np.all(np.isfinite(fe["mu"].to_numpy(dtype=float)))
+        assert np.all(np.isfinite(fe["sigma2"].to_numpy(dtype=float)))
+        assert np.all(np.isfinite(fe["free_energy"].to_numpy(dtype=float)))
+        assert np.all(fe["sigma2"].to_numpy(dtype=float) > 0.0)
+
+    def test_bottom_signal_detects_local_min_and_mu_flip(self):
+        mu = np.array([-0.5, -0.3, -0.1, 0.1, 0.2, 0.3], dtype=float)
+        free_energy = np.array([-0.2, -0.4, -0.8, -0.5, -0.3, -0.2], dtype=float)
+        signal = detect_bottom_signal(free_energy, mu, w=1, k=1)
+        assert signal.dtype == bool
+        assert bool(signal[2]) is True
+        assert np.sum(signal) == 1
