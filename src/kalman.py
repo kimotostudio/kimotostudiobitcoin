@@ -17,6 +17,17 @@ from __future__ import annotations
 import time
 import numpy as np
 
+SUPPORTED_MODELS = ("baseline", "trend")
+MIN_PRICES_REQUIRED = {
+    "baseline": 2,  # 1 return
+    "trend": 3,     # 2 returns
+}
+AUTO_TUNE_MIN_RETURNS = {
+    "baseline": 40,
+    "trend": 60,
+}
+CI_Z = 1.0  # ±1σ (about 68%)
+
 
 # ---------------------------------------------------------------------------
 # Core Kalman primitives (pure numpy, 1-step)
@@ -42,6 +53,45 @@ def _update(x, P, z, H, R):
 # ---------------------------------------------------------------------------
 # Model builders
 # ---------------------------------------------------------------------------
+
+def _validate_model(model: str) -> str:
+    """Validate model name and raise a clear error for unsupported values."""
+    if model not in SUPPORTED_MODELS:
+        supported = ", ".join(SUPPORTED_MODELS)
+        raise ValueError(f"Unsupported model '{model}'. Supported models: {supported}")
+    return model
+
+
+def _fallback_prediction(
+    prices: np.ndarray,
+    steps: int,
+    model: str,
+    warning: str,
+) -> dict:
+    """Safe fallback prediction: flat last price, unknown confidence bands."""
+    last_price = float(prices[-1]) if len(prices) > 0 else np.nan
+    pred_prices = np.full(steps, last_price, dtype=float)
+    pred_nan = np.full(steps, np.nan, dtype=float)
+
+    stats = {
+        "model": model,
+        "n_obs": max(len(prices) - 1, 0),
+        "fallback": True,
+        "warning": warning,
+        "ci_z": CI_Z,
+    }
+
+    return {
+        "pred_prices": pred_prices,
+        "pred_upper": pred_nan.copy(),
+        "pred_lower": pred_nan.copy(),
+        "pred_returns_mean": np.zeros(steps, dtype=float),
+        "pred_returns_std": pred_nan.copy(),
+        "pred_price_ci_half_width": pred_nan,
+        "filter_stats": stats,
+        "warning": warning,
+    }
+
 
 def _build_baseline(R_val, Q_val):
     """1D random-walk: x_t = x_{t-1} + w."""
@@ -104,6 +154,7 @@ def kalman_filter(
             F, H, Q, R  – model matrices
             stats       – dict with filter stats
     """
+    model = _validate_model(model)
     r_var = float(np.var(returns)) if len(returns) > 1 else 1e-8
     R_val = r_var * 0.5 * R_mult
 
@@ -133,7 +184,7 @@ def kalman_filter(
         "n_obs": N,
         "R_val": float(R[0, 0]),
         "Q_diag": [float(Q[i, i]) for i in range(Q.shape[0])],
-        "innovation_mse": float(np.mean(innovations**2)),
+        "innovation_mse": float(np.mean(innovations**2)) if N > 0 else float("nan"),
         "r_var": r_var,
     }
 
@@ -192,9 +243,24 @@ def predict_prices(
         pred_lower:  (steps,) -1σ price
         pred_returns_mean: (steps,) predicted mean returns
         pred_returns_std:  (steps,) predicted std of returns
+        pred_price_ci_half_width: (steps,) band half-width in price units
         filter_stats: dict
     """
+    model = _validate_model(model)
+    if steps < 0:
+        raise ValueError(f"steps must be >= 0, got {steps}")
+
     t0 = time.time()
+    prices = np.asarray(prices, dtype=float)
+    min_prices = MIN_PRICES_REQUIRED[model]
+    if len(prices) < min_prices:
+        warning = f"insufficient_prices: need >= {min_prices}, got {len(prices)}"
+        fallback = _fallback_prediction(prices, steps, model, warning)
+        fallback["filter_stats"].update({
+            "prediction_steps": steps,
+            "elapsed_s": 0.0,
+        })
+        return fallback
     rets = log_returns(prices)
     filt = kalman_filter(rets, model=model, R_mult=R_mult, Q_mult=Q_mult)
     mean_r, var_r = kalman_predict(filt, steps)
@@ -208,13 +274,17 @@ def predict_prices(
 
     pred_log_prices = last_log_price + cum_mean
     pred_prices = np.exp(pred_log_prices)
-    pred_upper = np.exp(pred_log_prices + cum_std)
-    pred_lower = np.exp(pred_log_prices - cum_std)
+    band_std = CI_Z * cum_std
+    pred_upper = np.exp(pred_log_prices + band_std)
+    pred_lower = np.exp(pred_log_prices - band_std)
+    pred_price_ci_half_width = (pred_upper - pred_lower) / 2.0
 
     elapsed = time.time() - t0
     stats = {
         **filt["stats"],
         "prediction_steps": steps,
+        "ci_z": CI_Z,
+        "fallback": False,
         "elapsed_s": round(elapsed, 4),
     }
 
@@ -224,7 +294,9 @@ def predict_prices(
         "pred_lower": pred_lower,
         "pred_returns_mean": mean_r,
         "pred_returns_std": std_r,
+        "pred_price_ci_half_width": pred_price_ci_half_width,
         "filter_stats": stats,
+        "warning": None,
     }
 
 
@@ -239,13 +311,58 @@ def auto_tune(
 
     Returns dict with best_R_mult, best_Q_mult, best_mse, all_results, elapsed_s.
     """
+    model = _validate_model(model)
+    if eval_window < 1:
+        raise ValueError(f"eval_window must be >= 1, got {eval_window}")
+
     t0 = time.time()
+    prices = np.asarray(prices, dtype=float)
     rets = log_returns(prices)
-    if len(rets) < eval_window + 50:
-        eval_window = max(len(rets) - 50, 50)
+    min_rets = AUTO_TUNE_MIN_RETURNS[model]
+    if len(rets) < min_rets:
+        warning = f"insufficient_returns_for_auto_tune: need >= {min_rets}, got {len(rets)}"
+        return {
+            "best_R_mult": 1.0,
+            "best_Q_mult": 1.0,
+            "best_mse": float("nan"),
+            "grid_size": 0,
+            "elapsed_s": round(time.time() - t0, 4),
+            "warning": warning,
+            "stats": {
+                "total": 0,
+                "best_R_mult": 1.0,
+                "best_Q_mult": 1.0,
+                "best_mse": float("nan"),
+                "fallback": True,
+                "warning": warning,
+            },
+        }
+
+    eval_window = min(eval_window, len(rets) - 1)
 
     train_rets = rets[:-eval_window]
     eval_rets = rets[-eval_window:]
+    if len(train_rets) == 0 or len(eval_rets) == 0:
+        warning = (
+            "insufficient_split_for_auto_tune: "
+            f"train={len(train_rets)}, eval={len(eval_rets)}"
+        )
+        return {
+            "best_R_mult": 1.0,
+            "best_Q_mult": 1.0,
+            "best_mse": float("nan"),
+            "grid_size": 0,
+            "elapsed_s": round(time.time() - t0, 4),
+            "warning": warning,
+            "stats": {
+                "total": 0,
+                "best_R_mult": 1.0,
+                "best_Q_mult": 1.0,
+                "best_mse": float("nan"),
+                "fallback": True,
+                "warning": warning,
+            },
+        }
 
     R_grid = [0.3, 0.5, 1.0, 2.0, 3.0]
     Q_grid = [0.3, 0.5, 1.0, 2.0, 5.0]
@@ -282,10 +399,12 @@ def auto_tune(
         "best_mse": float(best_mse),
         "grid_size": len(results),
         "elapsed_s": round(elapsed, 4),
+        "warning": None,
         "stats": {
             "total": len(results),
             "best_R_mult": best_R,
             "best_Q_mult": best_Q,
             "best_mse": float(best_mse),
+            "fallback": False,
         },
     }

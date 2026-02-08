@@ -20,7 +20,7 @@ from src.backtest import walk_forward_backtest
 
 # Bounded history reads + default chart span
 QUERY_LIMIT = 50000
-DEFAULT_VIEW_DAYS = 14
+DEFAULT_VIEW_DAYS = 30
 TIMEFRAME_OPTIONS = {"24h": 1, "1w": 7, "2w": 14, "1m": 30, "3m": 90, "6m": 180, "1y": 365, "5y": 1825}
 PREDICTION_HOURS = {"24h": 24, "1w": 72, "2w": 336, "1m": 168, "3m": 168, "6m": 168, "1y": 168, "5y": 168}
 
@@ -235,6 +235,7 @@ TRANSLATIONS = {
     "pred_hover": {"ja": "予測: ", "en": "Predicted: "},
     "price_collecting": {"ja": "価格データを収集中...", "en": "Collecting price data..."},
     "pred_error": {"ja": "予測計算エラー", "en": "Prediction calculation error"},
+    "pred_warning": {"ja": "予測フォールバック: {msg}", "en": "Prediction fallback: {msg}"},
     "pred_ma_error": {"ja": "移動平均予測エラー", "en": "Moving average prediction error"},
     "score_timeline": {"ja": "スコア推移", "en": "Score Timeline"},
     "threshold_label": {"ja": "閾値", "en": "Threshold"},
@@ -247,7 +248,7 @@ TRANSLATIONS = {
     "trend_direction": {"ja": "トレンド方向", "en": "Trend Direction"},
     "trend_up": {"ja": "上昇", "en": "Up"},
     "trend_down": {"ja": "下降", "en": "Down"},
-    "pred_ci": {"ja": "95%信頼区間", "en": "95% CI"},
+    "pred_ci": {"ja": "±1σ (68%)", "en": "±1σ (68%)"},
     # Backtest
     "backtest_title": {"ja": "バックテスト結果", "en": "Backtest Results"},
     "backtest_disclaimer": {
@@ -671,7 +672,7 @@ def predict_price_trend(df: pd.DataFrame, hours_ahead: int = 24) -> pd.DataFrame
         future_timestamps = pd.date_range(
             start=last_timestamp + timedelta(hours=1),
             periods=hours_ahead,
-            freq="H",
+            freq="h",
         )
 
         future_df = pd.DataFrame({
@@ -679,8 +680,11 @@ def predict_price_trend(df: pd.DataFrame, hours_ahead: int = 24) -> pd.DataFrame
             "upper": result["pred_upper"],
             "lower": result["pred_lower"],
             "std": result["pred_returns_std"],
+            "ci_price_half_width": result.get("pred_price_ci_half_width"),
         }, index=future_timestamps)
         future_df.attrs["filter_stats"] = result["filter_stats"]
+        if result.get("warning"):
+            future_df.attrs["prediction_warning"] = result["warning"]
         return future_df
 
     except Exception:
@@ -1540,7 +1544,7 @@ def main():
     # ── Timeframe Selector ──
     tf_cols = st.columns(len(TIMEFRAME_OPTIONS))
     if "timeframe" not in st.session_state:
-        st.session_state["timeframe"] = "2w"
+        st.session_state["timeframe"] = "1m"
     for i, (tf_key, tf_days) in enumerate(TIMEFRAME_OPTIONS.items()):
         with tf_cols[i]:
             btn_type = "primary" if st.session_state["timeframe"] == tf_key else "secondary"
@@ -1576,6 +1580,9 @@ def main():
         df_snap_view = df_snap_view[df_snap_view.index >= cutoff_dt]
 
     prediction_df = predict_price_trend(df_price_view, prediction_hours)
+    prediction_warning = prediction_df.attrs.get("prediction_warning") if len(prediction_df) > 0 else None
+    if prediction_warning:
+        st.info(get_text("pred_warning", msg=prediction_warning))
 
     # ── Price Chart ──
     st.subheader(chart_title)
@@ -1613,11 +1620,17 @@ def main():
             if "lower" in prediction_df.columns and "upper" in prediction_df.columns:
                 low = prediction_df["lower"].iloc[-1]
                 high = prediction_df["upper"].iloc[-1]
+                if "ci_price_half_width" in prediction_df.columns:
+                    ci_half_width = prediction_df["ci_price_half_width"].iloc[-1]
+                else:
+                    ci_half_width = (high - low) / 2.0
+                ci_text = f"±{format_price(ci_half_width)}" if pd.notna(ci_half_width) else "---"
                 st.metric(
                     get_text("pred_ci"),
-                    f"±{format_price(prediction_df['std'].iloc[-1]) if 'std' in prediction_df.columns else '---'}",
+                    ci_text,
                 )
-                st.caption(f"{format_price(low)} ~ {format_price(high)}")
+                if pd.notna(low) and pd.notna(high):
+                    st.caption(f"{format_price(low)} ~ {format_price(high)}")
 
     # ── Backtest ──
     if len(df_price_view) >= 100:
