@@ -29,6 +29,7 @@ DEFAULT_HORIZONS: dict[str, pd.Timedelta] = {
     "3d": pd.Timedelta(days=3),
     "7d": pd.Timedelta(days=7),
 }
+DEFAULT_COOLDOWN_GRID = [0, 6, 12, 24]
 
 DEFAULT_INPUT_CSV = Path("output") / "btc_price_features_log.csv"
 DEFAULT_EVENTS_CSV = Path("output") / "backtest_events.csv"
@@ -138,6 +139,23 @@ def _apply_cooldown(
             keep.append(int(raw_i))
             last_time = t
     return np.asarray(keep, dtype=int)
+
+
+def _cluster_labels_from_event_times(
+    event_times: pd.Series,
+    cluster_gap: pd.Timedelta | None,
+) -> np.ndarray | None:
+    """Build sequential cluster ids from event-time gaps."""
+    if cluster_gap is None or cluster_gap <= pd.Timedelta(0) or len(event_times) == 0:
+        return None
+    ts = pd.to_datetime(event_times).sort_values().reset_index(drop=True)
+    labels = np.zeros(len(ts), dtype=int)
+    cid = 0
+    for i in range(1, len(ts)):
+        if (ts.iloc[i] - ts.iloc[i - 1]) > cluster_gap:
+            cid += 1
+        labels[i] = cid
+    return labels
 
 
 def _match_random_indices(
@@ -268,6 +286,29 @@ def _block_bootstrap_mean_distribution(
     return out
 
 
+def _cluster_bootstrap_mean_distribution(
+    x: np.ndarray,
+    cluster_labels: np.ndarray,
+    n_bootstrap: int,
+    rng: np.random.RandomState,
+) -> np.ndarray:
+    """Cluster bootstrap distribution of mean by resampling whole clusters."""
+    if len(x) == 0:
+        return np.zeros(0, dtype=float)
+    cluster_labels = np.asarray(cluster_labels)
+    if len(cluster_labels) != len(x):
+        raise ValueError("cluster_labels length must match x length")
+
+    unique = np.unique(cluster_labels)
+    clusters = {c: np.flatnonzero(cluster_labels == c) for c in unique}
+    out = np.zeros(n_bootstrap, dtype=float)
+    for b in range(n_bootstrap):
+        picked = unique[rng.randint(0, len(unique), size=len(unique))]
+        idx = np.concatenate([clusters[c] for c in picked])
+        out[b] = float(np.mean(x[idx]))
+    return out
+
+
 def _block_permutation_p_value(
     x: np.ndarray,
     n_permutation: int,
@@ -300,6 +341,35 @@ def _block_permutation_p_value(
     return float((np.sum(np.abs(perm) >= abs(observed)) + 1.0) / (n_permutation + 1.0))
 
 
+def _cluster_permutation_p_value(
+    x: np.ndarray,
+    cluster_labels: np.ndarray,
+    n_permutation: int,
+    rng: np.random.RandomState,
+) -> float:
+    """
+    Two-sided cluster sign-permutation p-value for mean(x)==0.
+    Flips all observations in each cluster together.
+    """
+    if len(x) == 0:
+        return float("nan")
+    cluster_labels = np.asarray(cluster_labels)
+    if len(cluster_labels) != len(x):
+        raise ValueError("cluster_labels length must match x length")
+
+    unique = np.unique(cluster_labels)
+    clusters = {c: np.flatnonzero(cluster_labels == c) for c in unique}
+    observed = float(np.mean(x))
+    perm = np.zeros(n_permutation, dtype=float)
+    for p in range(n_permutation):
+        y = x.copy()
+        signs = rng.choice(np.array([-1.0, 1.0]), size=len(unique))
+        for i, c in enumerate(unique):
+            y[clusters[c]] = y[clusters[c]] * signs[i]
+        perm[p] = float(np.mean(y))
+    return float((np.sum(np.abs(perm) >= abs(observed)) + 1.0) / (n_permutation + 1.0))
+
+
 def _ci_from_distribution(samples: np.ndarray, alpha: float = 0.05) -> tuple[float, float]:
     """Percentile confidence interval from bootstrap samples."""
     if len(samples) == 0:
@@ -316,6 +386,7 @@ def summarize_backtest(
     n_bootstrap: int = 2000,
     n_permutation: int = 2000,
     block_size_events: int = 5,
+    cluster_labels: np.ndarray | None = None,
     seed: int = 42,
 ) -> dict:
     """Build summary stats, CI, and block tests by horizon."""
@@ -326,6 +397,7 @@ def summarize_backtest(
         "n_bootstrap": int(n_bootstrap),
         "n_permutation": int(n_permutation),
         "block_size_events": int(block_size_events),
+        "resampling_mode": "cluster" if cluster_labels is not None else "moving_block",
         "horizons": {},
     }
 
@@ -344,35 +416,70 @@ def summarize_backtest(
         b_valid = b[mask]
         diff = s_valid - b_valid
         hit_diff = (s_valid > 0).astype(float) - (b_valid > 0).astype(float)
+        labels_valid = None
+        if cluster_labels is not None:
+            labels_valid = np.asarray(cluster_labels)[mask]
 
-        boot_mean = _block_bootstrap_mean_distribution(
-            diff,
-            n_bootstrap=n_bootstrap,
-            block_size=block_size_events,
-            rng=rng,
-        )
+        if labels_valid is not None and len(labels_valid) == len(diff):
+            boot_mean = _cluster_bootstrap_mean_distribution(
+                diff,
+                cluster_labels=labels_valid,
+                n_bootstrap=n_bootstrap,
+                rng=rng,
+            )
+        else:
+            boot_mean = _block_bootstrap_mean_distribution(
+                diff,
+                n_bootstrap=n_bootstrap,
+                block_size=block_size_events,
+                rng=rng,
+            )
         mean_ci_low, mean_ci_high = _ci_from_distribution(boot_mean)
-        mean_perm_p = _block_permutation_p_value(
-            diff,
-            n_permutation=n_permutation,
-            block_size=block_size_events,
-            rng=rng,
-        )
+        if labels_valid is not None and len(labels_valid) == len(diff):
+            mean_perm_p = _cluster_permutation_p_value(
+                diff,
+                cluster_labels=labels_valid,
+                n_permutation=n_permutation,
+                rng=rng,
+            )
+        else:
+            mean_perm_p = _block_permutation_p_value(
+                diff,
+                n_permutation=n_permutation,
+                block_size=block_size_events,
+                rng=rng,
+            )
         mean_boot_p = float((np.sum(np.abs(boot_mean) >= abs(np.mean(diff))) + 1.0) / (len(boot_mean) + 1.0)) if len(boot_mean) else float("nan")
 
-        boot_hit = _block_bootstrap_mean_distribution(
-            hit_diff,
-            n_bootstrap=n_bootstrap,
-            block_size=block_size_events,
-            rng=rng,
-        )
+        if labels_valid is not None and len(labels_valid) == len(hit_diff):
+            boot_hit = _cluster_bootstrap_mean_distribution(
+                hit_diff,
+                cluster_labels=labels_valid,
+                n_bootstrap=n_bootstrap,
+                rng=rng,
+            )
+        else:
+            boot_hit = _block_bootstrap_mean_distribution(
+                hit_diff,
+                n_bootstrap=n_bootstrap,
+                block_size=block_size_events,
+                rng=rng,
+            )
         hit_ci_low, hit_ci_high = _ci_from_distribution(boot_hit)
-        hit_perm_p = _block_permutation_p_value(
-            hit_diff,
-            n_permutation=n_permutation,
-            block_size=block_size_events,
-            rng=rng,
-        )
+        if labels_valid is not None and len(labels_valid) == len(hit_diff):
+            hit_perm_p = _cluster_permutation_p_value(
+                hit_diff,
+                cluster_labels=labels_valid,
+                n_permutation=n_permutation,
+                rng=rng,
+            )
+        else:
+            hit_perm_p = _block_permutation_p_value(
+                hit_diff,
+                n_permutation=n_permutation,
+                block_size=block_size_events,
+                rng=rng,
+            )
         hit_boot_p = float((np.sum(np.abs(boot_hit) >= abs(np.mean(hit_diff))) + 1.0) / (len(boot_hit) + 1.0)) if len(boot_hit) else float("nan")
 
         mean_diff = float(np.mean(diff)) if len(diff) else float("nan")
@@ -486,6 +593,8 @@ def backtest_bottom_signals(
     n_permutation: int = 2000,
     block_size_events: int = 5,
     cooldown_hours: int = 0,
+    keep_all_events_clustered: bool = False,
+    cluster_gap_hours: int | None = None,
     seed: int = 42,
 ) -> tuple[pd.DataFrame, dict]:
     """Core backtest from an in-memory feature dataframe."""
@@ -500,7 +609,10 @@ def backtest_bottom_signals(
     cooldown = pd.Timedelta(hours=max(int(cooldown_hours), 0))
     signal_mask = df["bottom_signal"].to_numpy(dtype=bool)
     signal_indices_raw = np.flatnonzero(signal_mask)
-    signal_indices = _apply_cooldown(signal_indices_raw, idx, cooldown)
+    if keep_all_events_clustered:
+        signal_indices = signal_indices_raw
+    else:
+        signal_indices = _apply_cooldown(signal_indices_raw, idx, cooldown)
     candidate_indices = np.flatnonzero(~signal_mask)
 
     if len(signal_indices) == 0:
@@ -518,7 +630,7 @@ def backtest_bottom_signals(
         regimes=regimes,
         idx=idx,
         rng=rng,
-        cooldown=cooldown if cooldown > pd.Timedelta(0) else None,
+        cooldown=(None if keep_all_events_clustered else (cooldown if cooldown > pd.Timedelta(0) else None)),
     )
 
     pair_ids = np.arange(len(signal_indices), dtype=int)
@@ -527,6 +639,14 @@ def backtest_bottom_signals(
     events = pd.concat([signal_events, baseline_events], ignore_index=True)
     events.sort_values(["pair_id", "group"], inplace=True)
 
+    signal_times = signal_events["event_time"] if len(signal_events) else pd.Series(dtype="datetime64[ns]")
+    cluster_gap = None
+    if cluster_gap_hours is not None:
+        cluster_gap = pd.Timedelta(hours=max(int(cluster_gap_hours), 0))
+    elif keep_all_events_clustered and max(int(cooldown_hours), 0) > 0:
+        cluster_gap = pd.Timedelta(hours=max(int(cooldown_hours), 0))
+    cluster_labels = _cluster_labels_from_event_times(signal_times, cluster_gap)
+
     summary = summarize_backtest(
         signal_events=signal_events,
         baseline_events=baseline_events,
@@ -534,12 +654,16 @@ def backtest_bottom_signals(
         n_bootstrap=n_bootstrap,
         n_permutation=n_permutation,
         block_size_events=block_size_events,
+        cluster_labels=cluster_labels,
         seed=seed,
     )
     summary["matching"] = match_stats
     summary["cooldown_hours"] = int(max(int(cooldown_hours), 0))
     summary["raw_signal_events"] = int(len(signal_indices_raw))
     summary["cooldown_filtered_signal_events"] = int(len(signal_indices))
+    summary["keep_all_events_clustered"] = bool(keep_all_events_clustered)
+    summary["cluster_gap_hours"] = int(cluster_gap / pd.Timedelta(hours=1)) if cluster_gap is not None else 0
+    summary["n_clusters"] = int(len(np.unique(cluster_labels))) if cluster_labels is not None and len(cluster_labels) > 0 else 0
     return events, summary
 
 
@@ -551,31 +675,82 @@ def run_bottom_signal_backtest(
     n_permutation: int = 2000,
     block_size_events: int = 5,
     cooldown_hours: int = 0,
+    cooldown_hours_grid: list[int] | None = None,
+    keep_all_events_clustered: bool = False,
+    cluster_gap_hours: int | None = None,
     output_plots_dir: str | Path = DEFAULT_PLOTS_DIR,
     seed: int = 42,
 ) -> dict:
-    """Load feature log CSV, run event backtest, and persist outputs."""
+    """Load feature log CSV, run event backtest (single or multi-cooldown), and persist outputs."""
     df = load_feature_log(input_csv)
-    events, summary = backtest_bottom_signals(
-        df_raw=df,
-        horizons=DEFAULT_HORIZONS,
-        n_bootstrap=n_bootstrap,
-        n_permutation=n_permutation,
-        block_size_events=block_size_events,
-        cooldown_hours=cooldown_hours,
-        seed=seed,
-    )
+    if cooldown_hours_grid is None:
+        cooldown_hours_grid = [int(cooldown_hours)]
+    cooldown_hours_grid = sorted({max(int(x), 0) for x in cooldown_hours_grid})
+    if len(cooldown_hours_grid) == 0:
+        cooldown_hours_grid = [0]
+
+    all_events: list[pd.DataFrame] = []
+    scenario_summaries: dict[str, dict] = {}
+    output_plots_dir = Path(output_plots_dir)
+
+    multi_scenario = len(cooldown_hours_grid) > 1
+
+    for ch in cooldown_hours_grid:
+        events, summary = backtest_bottom_signals(
+            df_raw=df,
+            horizons=DEFAULT_HORIZONS,
+            n_bootstrap=n_bootstrap,
+            n_permutation=n_permutation,
+            block_size_events=block_size_events,
+            cooldown_hours=ch,
+            keep_all_events_clustered=keep_all_events_clustered,
+            cluster_gap_hours=cluster_gap_hours,
+            seed=seed,
+        )
+
+        scenario_tag = f"cd{ch}"
+        scen_plot_dir = (output_plots_dir / scenario_tag) if multi_scenario else output_plots_dir
+        signal_events = events[events["group"] == "signal"].copy() if len(events) else pd.DataFrame()
+        baseline_events = events[events["group"] == "random_baseline"].copy() if len(events) else pd.DataFrame()
+        plot_paths = _write_horizon_plots(
+            signal_events=signal_events,
+            baseline_events=baseline_events,
+            summary=summary,
+            output_dir=scen_plot_dir,
+            horizons=DEFAULT_HORIZONS,
+        )
+        for h_name, path in plot_paths.items():
+            if h_name in summary.get("horizons", {}):
+                summary["horizons"][h_name]["plot_file"] = path
+
+        e = events.copy()
+        if len(e) > 0:
+            e["cooldown_hours"] = int(ch)
+            e["keep_all_events_clustered"] = bool(keep_all_events_clustered)
+            e["cluster_gap_hours"] = int(cluster_gap_hours) if cluster_gap_hours is not None else (
+                int(ch) if keep_all_events_clustered else 0
+            )
+            all_events.append(e)
+        scenario_summaries[str(ch)] = summary
+
+    if len(all_events) > 0:
+        merged_events = pd.concat(all_events, ignore_index=True)
+    else:
+        merged_events = pd.DataFrame()
 
     output_events_csv = Path(output_events_csv)
     output_summary_json = Path(output_summary_json)
     output_events_csv.parent.mkdir(parents=True, exist_ok=True)
     output_summary_json.parent.mkdir(parents=True, exist_ok=True)
 
-    if len(events) == 0:
+    if len(merged_events) == 0:
         # Persist an empty file with a stable header.
         empty_cols = [
             "pair_id",
             "group",
+            "cooldown_hours",
+            "keep_all_events_clustered",
+            "cluster_gap_hours",
             "event_time",
             "event_price",
             "vol_regime",
@@ -598,20 +773,20 @@ def run_bottom_signal_backtest(
         ]
         pd.DataFrame(columns=empty_cols).to_csv(output_events_csv, index=False, encoding="utf-8-sig")
     else:
-        events.to_csv(output_events_csv, index=False, encoding="utf-8-sig")
+        merged_events.to_csv(output_events_csv, index=False, encoding="utf-8-sig")
 
-    signal_events = events[events["group"] == "signal"].copy() if len(events) else pd.DataFrame()
-    baseline_events = events[events["group"] == "random_baseline"].copy() if len(events) else pd.DataFrame()
-    plot_paths = _write_horizon_plots(
-        signal_events=signal_events,
-        baseline_events=baseline_events,
-        summary=summary,
-        output_dir=output_plots_dir,
-        horizons=DEFAULT_HORIZONS,
-    )
-    for h_name, path in plot_paths.items():
-        if h_name in summary.get("horizons", {}):
-            summary["horizons"][h_name]["plot_file"] = path
+    primary_cd = int(cooldown_hours_grid[0])
+    primary_summary = scenario_summaries[str(primary_cd)]
+    summary = {
+        **primary_summary,  # keep backward-compatible top-level keys
+        "primary_cooldown_hours": primary_cd,
+        "cooldown_hours_grid": [int(x) for x in cooldown_hours_grid],
+        "cooldown_results": scenario_summaries,
+        "keep_all_events_clustered": bool(keep_all_events_clustered),
+        "cluster_gap_hours": int(cluster_gap_hours) if cluster_gap_hours is not None else (
+            primary_cd if keep_all_events_clustered else 0
+        ),
+    }
 
     with output_summary_json.open("w", encoding="utf-8") as f:
         json.dump(summary, f, ensure_ascii=False, indent=2)
@@ -619,7 +794,7 @@ def run_bottom_signal_backtest(
     return {
         "events_path": str(output_events_csv),
         "summary_path": str(output_summary_json),
-        "plots_dir": str(output_plots_dir),
+        "plots_dir": str(output_plots_dir.resolve()),
         "summary": summary,
     }
 
@@ -634,12 +809,29 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--permutations", type=int, default=2000, help="Block permutation iterations")
     p.add_argument("--block-size", type=int, default=5, help="Block size in event units")
     p.add_argument("--cooldown-hours", type=int, default=0, help="Minimum hours between signal events")
+    p.add_argument(
+        "--cooldown-grid",
+        default="0,6,12,24",
+        help="Comma-separated cooldown hours to evaluate (e.g., 0,6,12,24)",
+    )
+    p.add_argument(
+        "--keep-all-events-clustered",
+        action="store_true",
+        help="Keep all signal events and model dependence via event clustering (no cooldown drop).",
+    )
+    p.add_argument(
+        "--cluster-gap-hours",
+        type=int,
+        default=None,
+        help="Gap threshold (hours) to form event clusters for cluster resampling.",
+    )
     p.add_argument("--seed", type=int, default=42, help="Random seed")
     return p
 
 
 if __name__ == "__main__":
     args = _build_arg_parser().parse_args()
+    cooldown_grid = [int(x.strip()) for x in str(args.cooldown_grid).split(",") if x.strip() != ""]
     result = run_bottom_signal_backtest(
         input_csv=args.input,
         output_events_csv=args.events_out,
@@ -648,6 +840,9 @@ if __name__ == "__main__":
         n_permutation=args.permutations,
         block_size_events=args.block_size,
         cooldown_hours=args.cooldown_hours,
+        cooldown_hours_grid=cooldown_grid,
+        keep_all_events_clustered=bool(args.keep_all_events_clustered),
+        cluster_gap_hours=args.cluster_gap_hours,
         output_plots_dir=args.plots_dir,
         seed=args.seed,
     )

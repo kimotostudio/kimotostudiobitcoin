@@ -193,3 +193,59 @@ def test_run_backtest_writes_horizon_plots(tmp_path):
         plot_file = summary["horizons"][h].get("plot_file")
         assert plot_file is not None
         assert (tmp_path / "plots" / f"backtest_{h}.html").exists()
+
+
+def test_multi_cooldown_summary_grid(tmp_path):
+    df = _make_feature_df(n=320, seed=21)
+    input_csv = tmp_path / "btc_price_features_log.csv"
+    events_csv = tmp_path / "backtest_events.csv"
+    summary_json = tmp_path / "backtest_summary.json"
+    plots_dir = tmp_path / "plots"
+    df.to_csv(input_csv, index_label="datetime", encoding="utf-8-sig")
+
+    result = run_bottom_signal_backtest(
+        input_csv=input_csv,
+        output_events_csv=events_csv,
+        output_summary_json=summary_json,
+        output_plots_dir=plots_dir,
+        cooldown_hours_grid=[0, 6, 12, 24],
+        n_bootstrap=100,
+        n_permutation=100,
+        block_size_events=3,
+        seed=9,
+    )
+    summary = result["summary"]
+    assert summary["cooldown_hours_grid"] == [0, 6, 12, 24]
+    assert set(summary["cooldown_results"].keys()) == {"0", "6", "12", "24"}
+    assert "horizons" in summary["cooldown_results"]["0"]
+
+    events = pd.read_csv(events_csv)
+    assert "cooldown_hours" in events.columns
+    assert set(events["cooldown_hours"].unique()) <= {0, 6, 12, 24}
+
+
+def test_keep_all_events_clustered_preserves_sample_size():
+    df = _make_feature_df(n=320, seed=22)
+    _, summary_cd = backtest_bottom_signals(
+        df,
+        cooldown_hours=24,
+        keep_all_events_clustered=False,
+        n_bootstrap=100,
+        n_permutation=100,
+        block_size_events=3,
+        seed=4,
+    )
+    _, summary_clustered = backtest_bottom_signals(
+        df,
+        cooldown_hours=24,
+        keep_all_events_clustered=True,
+        cluster_gap_hours=24,
+        n_bootstrap=100,
+        n_permutation=100,
+        block_size_events=3,
+        seed=4,
+    )
+    assert summary_clustered["raw_signal_events"] >= summary_cd["cooldown_filtered_signal_events"]
+    assert summary_clustered["cooldown_filtered_signal_events"] == summary_clustered["raw_signal_events"]
+    assert summary_clustered["keep_all_events_clustered"] is True
+    assert summary_clustered["n_clusters"] >= 1
