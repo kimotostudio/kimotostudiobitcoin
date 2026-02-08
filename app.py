@@ -84,6 +84,237 @@ st.markdown("""
 # Custom CSS
 # ============================================================================
 
+# ============================================================================
+# Translations
+# ============================================================================
+
+TRANSLATIONS = {
+    # Hero
+    "hero_subtitle": {
+        "ja": "KIMOTO STUDIO | リアルタイム底値検出システム",
+        "en": "KIMOTO STUDIO | Real-time Bottom Detection System",
+    },
+    "badge_realtime": {"ja": "リアルタイム更新", "en": "Real-time Updates"},
+    "badge_indicators": {"ja": "6つの指標", "en": "6 Indicators"},
+    "badge_free": {"ja": "100% 無料", "en": "100% Free"},
+    # Quick Start
+    "quick_start_title": {"ja": "クイックスタート", "en": "Quick Start"},
+    "quick_start_howto": {"ja": "使い方（30秒）", "en": "How to Use (30s)"},
+    "qs_step1": {"ja": "**スコアを確認**\n   60点以上 = 底値圏シグナル", "en": "**Check Score**\n   60+ = bottom signal"},
+    "qs_step2": {"ja": "**チャートを確認**\n   青線 = 実績 / 黄点線 = 予測", "en": "**Check Chart**\n   Blue = actual / Yellow dotted = prediction"},
+    "qs_step3": {"ja": "**指標を確認**\n   緑丸 = シグナル発火中", "en": "**Check Indicators**\n   Green = signal active"},
+    "qs_step4": {"ja": "**時間軸を切替**\n   24h / 1w / 2w / 1m", "en": "**Switch Timeframe**\n   24h / 1w / 2w / 1m"},
+    "qs_recommend_title": {"ja": "推奨", "en": "Recommended"},
+    "qs_rec1": {"ja": "毎日1回チェック", "en": "Check once daily"},
+    "qs_rec2": {"ja": "スコア60以上で注目", "en": "Watch when score 60+"},
+    "qs_rec3": {"ja": "複数指標が揃ったら検討", "en": "Consider when multiple indicators align"},
+    # About
+    "about_title": {"ja": "About", "en": "About"},
+    "about_description": {
+        "ja": "**Bitcoin Bottom Detector** は、プロトレーダー級のテクニカル指標を使い、\nビットコインの底値圏を自動検出するツールです。",
+        "en": "**Bitcoin Bottom Detector** automatically detects Bitcoin bottom zones\nusing professional-grade technical indicators.",
+    },
+    "about_features_title": {"ja": "特徴:", "en": "Features:"},
+    "about_feat1": {"ja": "6つの指標（RSI/BB/MACD/Volume/Stability）", "en": "6 indicators (RSI/BB/MACD/Volume/Stability)"},
+    "about_feat2": {"ja": "リアルタイム監視", "en": "Real-time monitoring"},
+    "about_feat3": {"ja": "1週間先の価格予測", "en": "1-week price prediction"},
+    "about_feat4": {"ja": "完全無料", "en": "Completely free"},
+    "about_author": {"ja": "**作者:** [KIMOTO STUDIO](https://github.com/kimotostudio)", "en": "**Author:** [KIMOTO STUDIO](https://github.com/kimotostudio)"},
+    "about_disclaimer": {
+        "ja": "**免責事項:**\n本ツールは情報提供のみを目的としています。\n投資判断は自己責任で行ってください。",
+        "en": "**Disclaimer:**\nThis tool is for informational purposes only.\nInvestment decisions are at your own risk.",
+    },
+    "share_tweet": {
+        "ja": "Bitcoin Bottom Detectorで底値を逃さない！ 6指標リアルタイム監視 + 1週間先予測",
+        "en": "Never miss a Bitcoin bottom! 6 indicator real-time monitoring + 1-week prediction",
+    },
+    # Stats Badge
+    "stats_realtime": {"ja": "リアルタイム監視", "en": "Real-time Monitoring"},
+    "stats_indicators": {"ja": "テクニカル指標", "en": "Technical Indicators"},
+    "stats_free": {"ja": "無料・オープンソース", "en": "Free & Open Source"},
+    # System Stats
+    "sys_stats_title": {"ja": "システム統計", "en": "System Stats"},
+    "sys_collection_period": {"ja": "データ収集期間", "en": "Collection Period"},
+    "sys_update_freq": {"ja": "更新頻度", "en": "Update Interval"},
+    "sys_uptime": {"ja": "稼働状態", "en": "Uptime"},
+    "sys_indicators": {"ja": "分析指標", "en": "Indicators"},
+    "sys_days": {"ja": "日", "en": "d"},
+    "sys_seconds": {"ja": "60秒", "en": "60s"},
+    "sys_types": {"ja": "6種", "en": "6 types"},
+    "sys_data_fresh": {"ja": "データは最新です（{min}分前）", "en": "Data is up to date ({min}m ago)"},
+    "sys_data_stale": {"ja": "データが少し古い可能性（{min}分前）", "en": "Data may be slightly old ({min}m ago)"},
+    "sys_data_stopped": {"ja": "データ更新が停止しています（{hrs}時間前）", "en": "Data update stopped ({hrs}h ago)"},
+    # Score Gauge
+    "detection_score": {"ja": "検出スコア", "en": "Detection Score"},
+    "score_bottom": {"ja": "底値圏", "en": "Bottom Zone"},
+    "score_watch": {"ja": "要注意", "en": "Watch"},
+    "score_normal": {"ja": "監視中", "en": "Monitoring"},
+    # Signal Labels
+    "sig_rsi_oversold": {"ja": "RSI 売られすぎ", "en": "RSI Oversold"},
+    "sig_rsi_recovery": {"ja": "RSI 回復傾向", "en": "RSI Recovery"},
+    "sig_bb_squeeze": {"ja": "BB 収縮", "en": "BB Squeeze"},
+    "sig_macd_bullish": {"ja": "MACD ブル転換", "en": "MACD Bullish Cross"},
+    "sig_volume_increase": {"ja": "出来高 増加", "en": "Volume Increase"},
+    "sig_price_stability": {"ja": "価格 安定", "en": "Price Stable"},
+    "total_score": {"ja": "合計スコア: {score} / 100", "en": "Total Score: {score} / 100"},
+    # Discord
+    "discord_title": {"ja": "Discord 通知", "en": "Discord Notifications"},
+    "discord_desc": {
+        "ja": "底値の可能性が高いシグナルを検知したら、Discordに通知を送ります。  \n設定は3ステップで完了します。",
+        "en": "Get notified on Discord when a potential bottom signal is detected.  \nSetup takes 3 steps.",
+    },
+    "discord_enable": {"ja": "通知を使う", "en": "Enable notifications"},
+    "discord_enable_help": {"ja": "チェックを入れると通知機能が有効になります", "en": "Check to enable notification feature"},
+    "discord_step1": {"ja": "1. Discord Webhook URL を入力", "en": "1. Enter Discord Webhook URL"},
+    "discord_url_help": {"ja": "Discord サーバーの Webhook URL を貼り付けてください", "en": "Paste your Discord server's Webhook URL"},
+    "discord_url_invalid": {"ja": "URLの形式が違います", "en": "Invalid URL format"},
+    "discord_howto_title": {"ja": "Webhook URL の取得方法", "en": "How to get Webhook URL"},
+    "discord_howto_steps_title": {"ja": "5ステップで取得:", "en": "5 steps to get it:"},
+    "discord_howto1": {"ja": "Discord サーバーを開く", "en": "Open your Discord server"},
+    "discord_howto2": {"ja": "設定 > 連携サービス > ウェブフック", "en": "Settings > Integrations > Webhooks"},
+    "discord_howto3": {"ja": "「新しいウェブフック」をクリック", "en": 'Click "New Webhook"'},
+    "discord_howto4": {"ja": "名前を入力して、通知を送りたいチャンネルを選択", "en": "Name it and select the channel"},
+    "discord_howto5": {"ja": "「ウェブフック URL をコピー」して、上に貼り付け", "en": '"Copy Webhook URL" and paste above'},
+    "discord_howto_link": {"ja": "画像付きガイド", "en": "Guide with images"},
+    "discord_step2": {"ja": "2. いつ通知するか設定", "en": "2. Set notification threshold"},
+    "discord_threshold_help": {"ja": "60点以上がおすすめ（高いほど確率が高い）", "en": "60+ recommended (higher = more reliable)"},
+    "discord_threshold_caption": {
+        "ja": "現在の設定: **{t}点以上**で通知（同じシグナルは1時間に1回まで）",
+        "en": "Current setting: notify at **{t}+** (max once per hour for same signal)",
+    },
+    "discord_step3": {"ja": "3. テストしてみる", "en": "3. Send a test"},
+    "discord_test_btn": {"ja": "テスト通知", "en": "Test Notification"},
+    "discord_enter_url": {"ja": "URL を入力してください", "en": "Please enter the URL"},
+    "discord_sending": {"ja": "送信中...", "en": "Sending..."},
+    "discord_last_sent": {"ja": "最後の通知: {t}", "en": "Last notification: {t}"},
+    "discord_no_sent": {"ja": "まだ通知なし", "en": "No notifications yet"},
+    "discord_cta_title": {"ja": "**通知を使うには**", "en": "**To enable notifications**"},
+    "discord_cta_body": {
+        "ja": '上の「通知を使う」にチェックを入れてください。\n設定は3分で完了します。',
+        "en": 'Check "Enable notifications" above.\nSetup takes 3 minutes.',
+    },
+    # Discord embed (sent messages)
+    "discord_test_title": {"ja": "テスト通知", "en": "Test Notification"},
+    "discord_test_desc": {"ja": "通知設定が正しく動作しています", "en": "Notification settings are working correctly"},
+    "discord_test_ok": {"ja": "送信できました! Discordを確認してください", "en": "Sent! Check your Discord"},
+    "discord_test_fail": {"ja": "送信失敗 (HTTP {code})", "en": "Send failed (HTTP {code})"},
+    "discord_test_timeout": {"ja": "タイムアウト (10秒)", "en": "Timeout (10s)"},
+    "discord_test_conn_err": {"ja": "接続エラー: URLを確認してください", "en": "Connection error: check your URL"},
+    "discord_test_error": {"ja": "エラー: {e}", "en": "Error: {e}"},
+    "discord_alert_title": {"ja": "底値シグナル検出", "en": "Bottom Signal Detected"},
+    "discord_signal_strong": {"ja": "強いシグナル", "en": "Strong Signal"},
+    "discord_signal_medium": {"ja": "中程度のシグナル", "en": "Moderate Signal"},
+    "discord_signal_weak": {"ja": "弱いシグナル", "en": "Weak Signal"},
+    "discord_alert_desc": {"ja": "スコア: **{score}点** ({level})", "en": "Score: **{score}** ({level})"},
+    "discord_field_price": {"ja": "現在価格", "en": "Current Price"},
+    "discord_field_score": {"ja": "スコア", "en": "Score"},
+    "discord_field_time": {"ja": "時刻", "en": "Time"},
+    # Analyze status
+    "status_collecting": {"ja": "データ収集中", "en": "Collecting Data"},
+    "status_collecting_n": {"ja": "データ収集中 ({n} 点)", "en": "Collecting Data ({n} pts)"},
+    "status_collecting_pct": {"ja": "データ収集中 ({n}/100)", "en": "Collecting Data ({n}/100)"},
+    "status_signal_fire": {"ja": "底値シグナル発火 ({score}/100)", "en": "Bottom Signal Fired ({score}/100)"},
+    "status_watch_zone": {"ja": "注目圏 ({score}/100)", "en": "Watch Zone ({score}/100)"},
+    "status_monitoring": {"ja": "通常監視中 ({score}/100)", "en": "Monitoring ({score}/100)"},
+    # Main KPI
+    "kpi_price": {"ja": "現在価格", "en": "Current Price"},
+    "kpi_status": {"ja": "状態", "en": "Status"},
+    "kpi_data_pts": {"ja": "データ点数: {n}", "en": "Data points: {n}"},
+    "alert_fire": {"ja": "底値シグナル発火!", "en": "Bottom Signal Fired!"},
+    "alert_watch": {"ja": "注目圏", "en": "Watch Zone"},
+    # Charts
+    "chart_title": {"ja": "BTC/JPY {tf} チャート + {pred}予測", "en": "BTC/JPY {tf} Chart + {pred} Prediction"},
+    "pred_label_hours": {"ja": "{h}時間", "en": "{h}h"},
+    "pred_label_days": {"ja": "{d}日", "en": "{d}d"},
+    "prediction_start": {"ja": "予測開始", "en": "Prediction Start"},
+    "prediction_curve": {"ja": "予測曲線", "en": "Prediction Curve"},
+    "pred_hover": {"ja": "予測: ", "en": "Predicted: "},
+    "price_collecting": {"ja": "価格データを収集中...", "en": "Collecting price data..."},
+    "pred_error": {"ja": "予測計算エラー", "en": "Prediction calculation error"},
+    "pred_ma_error": {"ja": "移動平均予測エラー", "en": "Moving average prediction error"},
+    "score_timeline": {"ja": "スコア推移", "en": "Score Timeline"},
+    "threshold_label": {"ja": "閾値", "en": "Threshold"},
+    "bb_width_title": {"ja": "BB幅 (%)", "en": "BB Width (%)"},
+    # Prediction metrics
+    "pred_current": {"ja": "現在価格", "en": "Current Price"},
+    "pred_future": {"ja": "予測価格 ({t})", "en": "Predicted Price ({t})"},
+    "pred_hours_later": {"ja": "{h}時間後", "en": "in {h}h"},
+    "pred_days_later": {"ja": "{d}日後", "en": "in {d}d"},
+    "trend_direction": {"ja": "トレンド方向", "en": "Trend Direction"},
+    "trend_up": {"ja": "上昇", "en": "Up"},
+    "trend_down": {"ja": "下降", "en": "Down"},
+    # Indicators
+    "indicators_title": {"ja": "テクニカル指標", "en": "Technical Indicators"},
+    "signals_title": {"ja": "シグナル一覧", "en": "Signal List"},
+    "rsi_oversold_tag": {"ja": "🔴 売られすぎ", "en": "🔴 Oversold"},
+    "rsi_recovery_tag": {"ja": "🟡 回復圏", "en": "🟡 Recovery"},
+    "rsi_neutral_tag": {"ja": "⚪ 中立", "en": "⚪ Neutral"},
+    "bb_squeeze_tag": {"ja": "🟢 収縮", "en": "🟢 Squeeze"},
+    "bb_normal_tag": {"ja": "⚪ 通常", "en": "⚪ Normal"},
+    "macd_bull_tag": {"ja": "🟢 ブル", "en": "🟢 Bull"},
+    "macd_bear_tag": {"ja": "🔴 ベア", "en": "🔴 Bear"},
+    "vol_increase_tag": {"ja": "🟢 増加", "en": "🟢 Increased"},
+    "vol_normal_tag": {"ja": "⚪ 通常", "en": "⚪ Normal"},
+    "metric_bb_width": {"ja": "BB幅", "en": "BB Width"},
+    "metric_vol_ratio": {"ja": "出来高比", "en": "Vol Ratio"},
+    # Errors
+    "err_db_connect": {"ja": "データベース接続エラー: {e}", "en": "Database connection error: {e}"},
+    "err_db_report": {"ja": "[GitHub Issues]({url}/issues) で報告してください。", "en": "Please report at [GitHub Issues]({url}/issues)."},
+    "err_db_missing": {
+        "ja": "DATABASE_URL が未設定です。Streamlit Secrets または環境変数に設定してください。",
+        "en": "DATABASE_URL is not set. Please set it in Streamlit Secrets or environment variables.",
+    },
+    "err_data_fetch": {
+        "ja": "データ取得エラー: {e}\n\nしばらく待ってから再度アクセスしてください。",
+        "en": "Data fetch error: {e}\n\nPlease try again later.",
+    },
+    "err_price_fetch": {"ja": "price_history 取得エラー: {e}", "en": "price_history fetch error: {e}"},
+    "err_snap_fetch": {"ja": "btc_history 取得エラー: {e}", "en": "btc_history fetch error: {e}"},
+    "warn_no_data": {
+        "ja": "データがまだありません。VPS の btc_monitor.py がデータを蓄積中です。",
+        "en": "No data yet. btc_monitor.py on VPS is collecting data.",
+    },
+    "info_auto_refresh": {
+        "ja": "60秒ごとに自動更新します。しばらくお待ちください。",
+        "en": "Auto-refreshes every 60 seconds. Please wait.",
+    },
+    # Footer
+    "footer_disclaimer": {"ja": "投資判断は自己責任で行ってください", "en": "Investment decisions are at your own risk"},
+    # Language selector
+    "lang_label": {"ja": "言語 / Language", "en": "言語 / Language"},
+}
+
+
+def get_text(key: str, **kwargs) -> str:
+    """Get translated text for current language."""
+    lang = st.session_state.get("lang", "ja")
+    entry = TRANSLATIONS.get(key, {})
+    text = entry.get(lang, entry.get("ja", key))
+    if kwargs:
+        text = text.format(**kwargs)
+    return text
+
+
+def render_language_selector():
+    """Language selector in sidebar."""
+    if "lang" not in st.session_state:
+        st.session_state["lang"] = "ja"
+
+    st.sidebar.markdown("---")
+    st.sidebar.markdown(f"**{get_text('lang_label')}**")
+    col_ja, col_en = st.sidebar.columns(2)
+    with col_ja:
+        if st.button("🇯🇵 日本語", use_container_width=True,
+                     type="primary" if st.session_state["lang"] == "ja" else "secondary"):
+            st.session_state["lang"] = "ja"
+            st.rerun()
+    with col_en:
+        if st.button("🇬🇧 English", use_container_width=True,
+                     type="primary" if st.session_state["lang"] == "en" else "secondary"):
+            st.session_state["lang"] = "en"
+            st.rerun()
+
+
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
@@ -243,7 +474,7 @@ def load_price_history(hours: int | None = 24) -> pd.DataFrame:
             df.set_index("datetime", inplace=True)
         return df
     except Exception as e:
-        st.error(f"price_history 取得エラー: {e}")
+        st.error(get_text("err_price_fetch", e=e))
         return pd.DataFrame()
 
 
@@ -277,7 +508,7 @@ def load_snapshot_history(hours: int | None = 24) -> pd.DataFrame:
             df.set_index("datetime", inplace=True)
         return df
     except Exception as e:
-        st.error(f"btc_history 取得エラー: {e}")
+        st.error(get_text("err_snap_fetch", e=e))
         return pd.DataFrame()
 
 
@@ -292,11 +523,11 @@ def analyze(df: pd.DataFrame) -> dict:
         "signals": {k: False for k in WEIGHTS},
         "indicators": {},
         "alert": False,
-        "status": "データ収集中",
+        "status": get_text("status_collecting"),
     }
 
     if len(df) < 10:
-        empty["status"] = f"データ収集中 ({len(df)} 点)"
+        empty["status"] = get_text("status_collecting_n", n=len(df))
         return empty
 
     prices = df["price"]
@@ -341,13 +572,13 @@ def analyze(df: pd.DataFrame) -> dict:
     alert = score >= SIGNAL_THRESHOLD and not insufficient
 
     if insufficient:
-        status = f"データ収集中 ({len(df)}/100)"
+        status = get_text("status_collecting_pct", n=len(df))
     elif alert:
-        status = f"底値シグナル発火 ({score}/100)"
+        status = get_text("status_signal_fire", score=score)
     elif score >= 40:
-        status = f"注目圏 ({score}/100)"
+        status = get_text("status_watch_zone", score=score)
     else:
-        status = f"通常監視中 ({score}/100)"
+        status = get_text("status_monitoring", score=score)
 
     return {
         "score": score,
@@ -408,7 +639,7 @@ def predict_price_trend(df: pd.DataFrame, hours_ahead: int = 24) -> pd.DataFrame
         return future_df
 
     except Exception:
-        st.warning("予測計算エラー")
+        st.warning(get_text("pred_error"))
         return pd.DataFrame()
 
 
@@ -446,7 +677,7 @@ def predict_price_moving_average(
         return future_df
 
     except Exception:
-        st.warning("移動平均予測エラー")
+        st.warning(get_text("pred_ma_error"))
         return pd.DataFrame()
 
 def price_chart_with_prediction(
@@ -457,7 +688,7 @@ def price_chart_with_prediction(
 ):
     """Plotly price chart with prediction curve."""
     if len(df) == 0:
-        st.info("価格データを収集中...")
+        st.info(get_text("price_collecting"))
         return
 
     fig = go.Figure()
@@ -480,9 +711,9 @@ def price_chart_with_prediction(
             x=prediction_with_connection.index,
             y=prediction_with_connection["price"],
             mode="lines",
-            name="予測曲線",
+            name=get_text("prediction_curve"),
             line=dict(color="#fbbf24", width=2, dash="dot"),
-            hovertemplate="予測: %{y:,.0f} JPY<br>%{x|%Y-%m-%d %H:%M}<extra></extra>",
+            hovertemplate=get_text("pred_hover") + "%{y:,.0f} JPY<br>%{x|%Y-%m-%d %H:%M}<extra></extra>",
         ))
 
         std_dev = df["price"].tail(48).std()
@@ -535,7 +766,7 @@ def price_chart_with_prediction(
                 y=1,
                 xref="x",
                 yref="paper",
-                text="予測開始",
+                text=get_text("prediction_start"),
                 showarrow=False,
                 yanchor="bottom",
             )
@@ -576,7 +807,7 @@ def score_chart(snap: pd.DataFrame):
         marker=dict(size=4),
     ))
     fig.add_hline(y=SIGNAL_THRESHOLD, line_dash="dash",
-                  line_color="#f85149", annotation_text="閾値")
+                  line_color="#f85149", annotation_text=get_text("threshold_label"))
     fig.update_layout(
         xaxis_title="", yaxis_title="Score",
         yaxis=dict(range=[0, 105]),
@@ -629,7 +860,7 @@ def indicator_charts(snap: pd.DataFrame):
             fig.add_hline(y=BB_SQUEEZE_THRESHOLD * 100, line_dash="dot",
                           line_color="#3fb950", annotation_text="Squeeze")
             fig.update_layout(
-                title="BB幅 (%)",
+                title=get_text("bb_width_title"),
                 template="plotly_dark",
                 paper_bgcolor="#0d1117", plot_bgcolor="#161b22",
                 font=dict(color="#c9d1d9", size=11),
@@ -662,26 +893,26 @@ def indicator_charts(snap: pd.DataFrame):
 # Signal Panel
 # ============================================================================
 
-SIGNAL_LABELS = {
-    "rsi_oversold":    ("RSI 売られすぎ", 25),
-    "rsi_recovery":    ("RSI 回復傾向", 15),
-    "bb_squeeze":      ("BB 収縮", 20),
-    "macd_bullish":    ("MACD ブル転換", 20),
-    "volume_increase": ("出来高 増加", 10),
-    "price_stability": ("価格 安定", 10),
+SIGNAL_KEYS = {
+    "rsi_oversold":    ("sig_rsi_oversold", 25),
+    "rsi_recovery":    ("sig_rsi_recovery", 15),
+    "bb_squeeze":      ("sig_bb_squeeze", 20),
+    "macd_bullish":    ("sig_macd_bullish", 20),
+    "volume_increase": ("sig_volume_increase", 10),
+    "price_stability": ("sig_price_stability", 10),
 }
 
 
 def signal_panel(signals: dict, score: int):
     """Render signal dots + score bar."""
-    for key, (label, weight) in SIGNAL_LABELS.items():
+    for key, (text_key, weight) in SIGNAL_KEYS.items():
         active = signals.get(key, False)
         icon = "🟢" if active else "⚫"
         pts = f"+{weight}" if active else "0"
-        st.markdown(f"{icon} **{label}**  `{pts}pt`")
+        st.markdown(f"{icon} **{get_text(text_key)}**  `{pts}pt`")
 
     st.markdown("---")
-    st.markdown(f"**合計スコア: {score} / 100**")
+    st.markdown(f"**{get_text('total_score', score=score)}**")
     st.progress(min(score / 100, 1.0))
 
 
@@ -695,29 +926,29 @@ GITHUB_URL = "https://github.com/kimotostudio/kimotostudiobitcoin"
 
 def render_landing_hero():
     """Animated hero section with feature badges."""
-    st.markdown("""
+    st.markdown(f"""
 <div style="text-align: center; padding: 2rem 0;">
     <h1 style="font-size: 3rem; margin-bottom: 0.5rem;">
         Bitcoin Bottom Detector
     </h1>
     <p style="font-size: 1.15rem; color: #9ca3af; font-weight: 500; margin-bottom: 1.25rem;">
-        KIMOTO STUDIO | リアルタイム底値検出システム
+        {get_text("hero_subtitle")}
     </p>
     <div style="display: flex; justify-content: center; gap: 0.75rem; flex-wrap: wrap;">
         <span style="background: rgba(16,185,129,0.15); padding: 0.4rem 1rem; border-radius: 2rem;
                      font-size: 0.85rem; font-weight: 600; color: #10b981;
                      border: 1px solid rgba(16,185,129,0.3);">
-            リアルタイム更新
+            {get_text("badge_realtime")}
         </span>
         <span style="background: rgba(251,191,36,0.15); padding: 0.4rem 1rem; border-radius: 2rem;
                      font-size: 0.85rem; font-weight: 600; color: #fbbf24;
                      border: 1px solid rgba(251,191,36,0.3);">
-            6つの指標
+            {get_text("badge_indicators")}
         </span>
         <span style="background: rgba(59,130,246,0.15); padding: 0.4rem 1rem; border-radius: 2rem;
                      font-size: 0.85rem; font-weight: 600; color: #3b82f6;
                      border: 1px solid rgba(59,130,246,0.3);">
-            100% 無料
+            {get_text("badge_free")}
         </span>
     </div>
 </div>
@@ -726,40 +957,36 @@ def render_landing_hero():
 
 def render_quick_start():
     """Quick start guide in sidebar."""
-    with st.sidebar.expander("クイックスタート", expanded=False):
-        st.markdown("""
-### 使い方（30秒）
+    with st.sidebar.expander(get_text("quick_start_title"), expanded=False):
+        st.markdown(f"""
+### {get_text("quick_start_howto")}
 
-1. **スコアを確認**
-   60点以上 = 底値圏シグナル
+1. {get_text("qs_step1")}
 
-2. **チャートを確認**
-   青線 = 実績 / 黄点線 = 予測
+2. {get_text("qs_step2")}
 
-3. **指標を確認**
-   緑丸 = シグナル発火中
+3. {get_text("qs_step3")}
 
-4. **時間軸を切替**
-   24h / 1w / 2w / 1m
+4. {get_text("qs_step4")}
 
-### 推奨
+### {get_text("qs_recommend_title")}
 
-- 毎日1回チェック
-- スコア60以上で注目
-- 複数指標が揃ったら検討
+- {get_text("qs_rec1")}
+- {get_text("qs_rec2")}
+- {get_text("qs_rec3")}
 """)
 
 
 def render_stats_badge():
     """Display usage stats badge in sidebar."""
-    st.sidebar.markdown("""
+    st.sidebar.markdown(f"""
 <div style="text-align: center; padding: 1rem; background: #1a1d23; border-radius: 0.5rem;">
     <div style="font-size: 2rem; color: #10b981; font-weight: bold;">24/7</div>
-    <div style="color: #9ca3af; font-size: 0.875rem;">リアルタイム監視</div>
+    <div style="color: #9ca3af; font-size: 0.875rem;">{get_text("stats_realtime")}</div>
     <div style="font-size: 2rem; color: #10b981; font-weight: bold; margin-top: 1rem;">6</div>
-    <div style="color: #9ca3af; font-size: 0.875rem;">テクニカル指標</div>
+    <div style="color: #9ca3af; font-size: 0.875rem;">{get_text("stats_indicators")}</div>
     <div style="font-size: 2rem; color: #10b981; font-weight: bold; margin-top: 1rem;">100%</div>
-    <div style="color: #9ca3af; font-size: 0.875rem;">無料・オープンソース</div>
+    <div style="color: #9ca3af; font-size: 0.875rem;">{get_text("stats_free")}</div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -786,16 +1013,17 @@ def render_github_link():
 
 def render_system_stats(df: pd.DataFrame):
     """Show system health and data freshness."""
-    with st.expander("システム統計", expanded=False):
+    with st.expander(get_text("sys_stats_title"), expanded=False):
         s1, s2, s3, s4 = st.columns(4)
         with s1:
-            st.metric("データ収集期間", f"{len(df) / 60 / 24:.1f}日")
+            st.metric(get_text("sys_collection_period"),
+                      f"{len(df) / 60 / 24:.1f}{get_text('sys_days')}")
         with s2:
-            st.metric("更新頻度", "60秒")
+            st.metric(get_text("sys_update_freq"), get_text("sys_seconds"))
         with s3:
-            st.metric("稼働状態", "24/7")
+            st.metric(get_text("sys_uptime"), "24/7")
         with s4:
-            st.metric("分析指標", "6種")
+            st.metric(get_text("sys_indicators"), get_text("sys_types"))
 
         if len(df) > 0:
             latest = df.index[-1]
@@ -805,36 +1033,32 @@ def render_system_stats(df: pd.DataFrame):
             delay_min = (now - latest).total_seconds() / 60
 
             if delay_min < 5:
-                st.success(f"データは最新です（{delay_min:.0f}分前）")
+                st.success(get_text("sys_data_fresh", min=f"{delay_min:.0f}"))
             elif delay_min < 60:
-                st.warning(f"データが少し古い可能性（{delay_min:.0f}分前）")
+                st.warning(get_text("sys_data_stale", min=f"{delay_min:.0f}"))
             else:
-                st.error(f"データ更新が停止しています（{delay_min / 60:.1f}時間前）")
+                st.error(get_text("sys_data_stopped", hrs=f"{delay_min / 60:.1f}"))
 
 
 def render_about_page():
     """Render about/info page in sidebar."""
     st.sidebar.markdown("---")
-    st.sidebar.header("About")
+    st.sidebar.header(get_text("about_title"))
 
-    st.sidebar.markdown("""
-**Bitcoin Bottom Detector** は、プロトレーダー級のテクニカル指標を使い、
-ビットコインの底値圏を自動検出するツールです。
+    st.sidebar.markdown(f"""{get_text("about_description")}
 
-**特徴:**
-- 6つの指標（RSI/BB/MACD/Volume/Stability）
-- リアルタイム監視
-- 1週間先の価格予測
-- 完全無料
+**{get_text("about_features_title")}**
+- {get_text("about_feat1")}
+- {get_text("about_feat2")}
+- {get_text("about_feat3")}
+- {get_text("about_feat4")}
 
-**作者:** [KIMOTO STUDIO](https://github.com/kimotostudio)
+{get_text("about_author")}
 
-**免責事項:**
-本ツールは情報提供のみを目的としています。
-投資判断は自己責任で行ってください。
+{get_text("about_disclaimer")}
 """)
 
-    tweet_text = "Bitcoin Bottom Detectorで底値を逃さない！ 6指標リアルタイム監視 + 1週間先予測"
+    tweet_text = get_text("share_tweet")
     twitter_url = f"https://twitter.com/intent/tweet?text={tweet_text}&url={APP_URL}"
 
     st.sidebar.markdown(f"""
@@ -870,7 +1094,7 @@ def render_footer(data_pts: int):
            style="color: #8b949e;">Streamlit</a>
     </p>
     <p style="margin-top: 8px; font-size: 0.75rem;">
-        投資判断は自己責任で行ってください
+        {get_text("footer_disclaimer")}
         | {data_pts} pts
         | {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
     </p>
@@ -886,15 +1110,15 @@ def render_score_gauge(score: int):
     """Render visual score gauge with color-coded status."""
     if score >= SIGNAL_THRESHOLD:
         color = "#10b981"
-        status = "底値圏"
+        status = get_text("score_bottom")
         bg = "rgba(16,185,129,0.15)"
     elif score >= 40:
         color = "#fbbf24"
-        status = "要注意"
+        status = get_text("score_watch")
         bg = "rgba(251,191,36,0.15)"
     else:
         color = "#6b7280"
-        status = "監視中"
+        status = get_text("score_normal")
         bg = "rgba(107,114,128,0.15)"
 
     st.markdown(f"""
@@ -902,7 +1126,7 @@ def render_score_gauge(score: int):
             padding: 2rem; text-align: center; margin: 1rem 0;">
     <div style="font-size: 0.8rem; color: #9ca3af; text-transform: uppercase;
                 letter-spacing: 0.1em; margin-bottom: 0.25rem;">
-        検出スコア
+        {get_text("detection_score")}
     </div>
     <div style="font-size: 3.5rem; font-weight: 800; color: {color};
                 font-family: 'JetBrains Mono', monospace; line-height: 1;">
@@ -932,12 +1156,12 @@ def send_discord_test(webhook_url: str) -> tuple[bool, str]:
     try:
         payload = {
             "embeds": [{
-                "title": "テスト通知",
-                "description": "通知設定が正しく動作しています",
+                "title": get_text("discord_test_title"),
+                "description": get_text("discord_test_desc"),
                 "color": 0x10b981,
                 "fields": [{
-                    "name": "時刻",
-                    "value": datetime.now().strftime("%Y年%m月%d日 %H:%M"),
+                    "name": get_text("discord_field_time"),
+                    "value": datetime.now().strftime("%Y-%m-%d %H:%M"),
                     "inline": False,
                 }],
                 "footer": {"text": "Bitcoin Bottom Detector"},
@@ -945,14 +1169,14 @@ def send_discord_test(webhook_url: str) -> tuple[bool, str]:
         }
         resp = requests.post(webhook_url, json=payload, timeout=10)
         if resp.status_code in (200, 204):
-            return True, "送信できました! Discordを確認してください"
-        return False, f"送信失敗 (HTTP {resp.status_code})"
+            return True, get_text("discord_test_ok")
+        return False, get_text("discord_test_fail", code=resp.status_code)
     except requests.exceptions.Timeout:
-        return False, "タイムアウト (10秒)"
+        return False, get_text("discord_test_timeout")
     except requests.exceptions.ConnectionError:
-        return False, "接続エラー: URLを確認してください"
+        return False, get_text("discord_test_conn_err")
     except Exception as e:
-        return False, f"エラー: {e}"
+        return False, get_text("discord_test_error", e=e)
 
 
 def send_discord_score_alert(webhook_url: str, score: int, price: float,
@@ -960,27 +1184,25 @@ def send_discord_score_alert(webhook_url: str, score: int, price: float,
     """Send bottom signal alert via Discord embed."""
     try:
         rsi_val = indicators.get("rsi", 0)
-        bb_w = indicators.get("bb", {}).get("width", 0) * 100
-        vol_r = indicators.get("volume", {}).get("ratio", 1.0)
 
         if score >= 70:
             color = 0x10b981
-            level = "強いシグナル"
+            level = get_text("discord_signal_strong")
         elif score >= 60:
             color = 0xfbbf24
-            level = "中程度のシグナル"
+            level = get_text("discord_signal_medium")
         else:
             color = 0x9ca3af
-            level = "弱いシグナル"
+            level = get_text("discord_signal_weak")
 
         payload = {
             "embeds": [{
-                "title": "底値シグナル検出",
-                "description": f"スコア: **{score}点** ({level})",
+                "title": get_text("discord_alert_title"),
+                "description": get_text("discord_alert_desc", score=score, level=level),
                 "color": color,
                 "fields": [
-                    {"name": "現在価格", "value": f"¥{price:,.0f}", "inline": True},
-                    {"name": "スコア", "value": f"{score}/100", "inline": True},
+                    {"name": get_text("discord_field_price"), "value": f"¥{price:,.0f}", "inline": True},
+                    {"name": get_text("discord_field_score"), "value": f"{score}/100", "inline": True},
                     {"name": "RSI", "value": f"{rsi_val:.1f}", "inline": True},
                 ],
                 "footer": {"text": "Bitcoin Bottom Detector"},
@@ -1006,9 +1228,8 @@ def _is_valid_webhook(url: str) -> bool:
 
 def render_discord_notification_panel():
     """Discord notification panel - simple and friendly."""
-    st.markdown("## Discord 通知")
-    st.markdown("底値の可能性が高いシグナルを検知したら、Discordに通知を送ります。  \n"
-                "設定は3ステップで完了します。")
+    st.markdown(f"## {get_text('discord_title')}")
+    st.markdown(get_text("discord_desc"))
 
     # Initialize session state
     if "discord_enabled" not in st.session_state:
@@ -1030,9 +1251,9 @@ def render_discord_notification_panel():
 """, unsafe_allow_html=True)
 
     enabled = st.checkbox(
-        "通知を使う",
+        get_text("discord_enable"),
         value=st.session_state["discord_enabled"],
-        help="チェックを入れると通知機能が有効になります",
+        help=get_text("discord_enable_help"),
     )
     st.session_state["discord_enabled"] = enabled
 
@@ -1040,66 +1261,67 @@ def render_discord_notification_panel():
         st.markdown("---")
 
         # Step 1: Webhook URL
-        st.markdown("**1. Discord Webhook URL を入力**")
+        st.markdown(f"**{get_text('discord_step1')}**")
         webhook = st.text_input(
             "Webhook URL",
             value=st.session_state["discord_webhook"],
             placeholder="https://discord.com/api/webhooks/123456789/abcdefg...",
-            help="Discord サーバーの Webhook URL を貼り付けてください",
+            help=get_text("discord_url_help"),
             label_visibility="collapsed",
         )
         st.session_state["discord_webhook"] = webhook
 
         webhook_valid = True
         if webhook and not _is_valid_webhook(webhook):
-            st.warning("URLの形式が違います")
+            st.warning(get_text("discord_url_invalid"))
             webhook_valid = False
 
-        with st.expander("Webhook URL の取得方法"):
-            st.markdown("""
-**5ステップで取得:**
+        with st.expander(get_text("discord_howto_title")):
+            st.markdown(f"""
+**{get_text("discord_howto_steps_title")}**
 
-1. Discord サーバーを開く
-2. 設定 > 連携サービス > ウェブフック
-3. 「新しいウェブフック」をクリック
-4. 名前を入力して、通知を送りたいチャンネルを選択
-5. 「ウェブフック URL をコピー」して、上に貼り付け
+1. {get_text("discord_howto1")}
+2. {get_text("discord_howto2")}
+3. {get_text("discord_howto3")}
+4. {get_text("discord_howto4")}
+5. {get_text("discord_howto5")}
 
-[画像付きガイド](https://support.discord.com/hc/ja/articles/228383668)
+[{get_text("discord_howto_link")}](https://support.discord.com/hc/ja/articles/228383668)
 """)
 
         st.markdown("---")
 
         # Step 2: Threshold
-        st.markdown("**2. いつ通知するか設定**")
+        st.markdown(f"**{get_text('discord_step2')}**")
         threshold = st.slider(
-            "スコアがこの値を超えたら通知",
+            "Threshold",
             min_value=40, max_value=100,
             value=st.session_state["discord_threshold"],
             step=5,
-            help="60点以上がおすすめ（高いほど確率が高い）",
+            help=get_text("discord_threshold_help"),
             label_visibility="collapsed",
         )
         st.session_state["discord_threshold"] = threshold
-        st.caption(f"現在の設定: **{threshold}点以上**で通知（同じシグナルは1時間に1回まで）")
+        st.caption(get_text("discord_threshold_caption", t=threshold))
 
         st.markdown("---")
 
         # Step 3: Test
-        st.markdown("**3. テストしてみる**")
+        st.markdown(f"**{get_text('discord_step3')}**")
         col_btn, col_result = st.columns([1, 2])
 
         with col_btn:
-            test_clicked = st.button("テスト通知", use_container_width=True, type="primary")
+            test_clicked = st.button(get_text("discord_test_btn"),
+                                     use_container_width=True, type="primary")
 
         with col_result:
             if test_clicked:
                 if not webhook:
-                    st.warning("URL を入力してください")
+                    st.warning(get_text("discord_enter_url"))
                 elif not webhook_valid:
-                    st.error("URL の形式が違います")
+                    st.error(get_text("discord_url_invalid"))
                 else:
-                    with st.spinner("送信中..."):
+                    with st.spinner(get_text("discord_sending")):
                         ok, msg = send_discord_test(webhook)
                     if ok:
                         st.success(msg)
@@ -1110,15 +1332,15 @@ def render_discord_notification_panel():
                         st.error(msg)
 
         st.markdown("---")
-        last_sent = st.session_state.get("last_discord_sent", "まだ通知なし")
-        st.caption(f"最後の通知: {last_sent}")
+        last_sent = st.session_state.get("last_discord_sent",
+                                         get_text("discord_no_sent"))
+        st.caption(get_text("discord_last_sent", t=last_sent))
 
     else:
-        st.info("""
-**通知を使うには**
+        st.info(f"""
+{get_text("discord_cta_title")}
 
-上の「通知を使う」にチェックを入れてください。
-設定は3分で完了します。
+{get_text("discord_cta_body")}
 """)
 
 
@@ -1151,6 +1373,9 @@ def check_and_send_discord(result: dict, price: float):
 # ============================================================================
 
 def main():
+    # Language selector first
+    render_language_selector()
+
     # Sidebar
     render_quick_start()
     render_about_page()
@@ -1172,12 +1397,12 @@ def main():
     try:
         engine = get_engine()
     except Exception as e:
-        st.error(f"データベース接続エラー: {e}\n\n"
-                 f"[GitHub Issues]({GITHUB_URL}/issues) で報告してください。")
+        st.error(f"{get_text('err_db_connect', e=e)}\n\n"
+                 f"{get_text('err_db_report', url=GITHUB_URL)}")
         st.stop()
 
     if engine is None:
-        st.error("DATABASE_URL が未設定です。Streamlit Secrets または環境変数に設定してください。")
+        st.error(get_text("err_db_missing"))
         st.stop()
 
     # Load data
@@ -1185,12 +1410,12 @@ def main():
         df_price = load_price_history(24)
         df_snap = load_snapshot_history(24)
     except Exception as e:
-        st.error(f"データ取得エラー: {e}\n\nしばらく待ってから再度アクセスしてください。")
+        st.error(get_text("err_data_fetch", e=e))
         st.stop()
 
     if len(df_price) == 0 and len(df_snap) == 0:
-        st.warning("データがまだありません。VPS の btc_monitor.py がデータを蓄積中です。")
-        st.info("60秒ごとに自動更新します。しばらくお待ちください。")
+        st.warning(get_text("warn_no_data"))
+        st.info(get_text("info_auto_refresh"))
         time.sleep(60)
         st.rerun()
 
@@ -1217,27 +1442,28 @@ def main():
         k1, k2 = st.columns(2)
         with k1:
             st.metric(
-                "現在価格",
+                get_text("kpi_price"),
                 f"¥{latest_price:,.0f}",
                 delta=f"{change_pct:+.2f}%" if change_pct is not None else None,
             )
         with k2:
-            st.metric("状態", result["status"])
-            st.caption(f"データ点数: {len(df_price)}")
+            st.metric(get_text("kpi_status"), result["status"])
+            st.caption(get_text("kpi_data_pts", n=len(df_price)))
 
         # Alert Box
         if result["alert"]:
             st.markdown(
                 '<div class="signal-box signal-fire">'
-                f'<strong>底値シグナル発火!</strong>  スコア {score}/100  |  '
-                f'¥{latest_price:,.0f}'
+                f'<strong>{get_text("alert_fire")}</strong>  '
+                f'Score {score}/100  |  ¥{latest_price:,.0f}'
                 '</div>',
                 unsafe_allow_html=True,
             )
         elif score >= 40:
             st.markdown(
                 '<div class="signal-box signal-watch">'
-                f'<strong>注目圏</strong>  スコア {score}/100'
+                f'<strong>{get_text("alert_watch")}</strong>  '
+                f'Score {score}/100'
                 '</div>',
                 unsafe_allow_html=True,
             )
@@ -1267,8 +1493,11 @@ def main():
     active_tf = st.session_state["timeframe"]
     view_days = TIMEFRAME_OPTIONS[active_tf]
     prediction_hours = PREDICTION_HOURS[active_tf]
-    pred_label = f"{prediction_hours}時間" if prediction_hours < 48 else f"{prediction_hours // 24}日"
-    chart_title = f"BTC/JPY {active_tf} チャート + {pred_label}予測"
+    if prediction_hours < 48:
+        pred_label = get_text("pred_label_hours", h=prediction_hours)
+    else:
+        pred_label = get_text("pred_label_days", d=prediction_hours // 24)
+    chart_title = get_text("chart_title", tf=active_tf, pred=pred_label)
 
     df_price_full = load_price_history(None)
     df_snap_full = load_snapshot_history(None)
@@ -1299,20 +1528,23 @@ def main():
 
         p1, p2, p3 = st.columns(3)
         with p1:
-            st.metric("現在価格", f"¥{df_price_view['price'].iloc[-1]:,.0f}")
+            st.metric(get_text("pred_current"), f"¥{df_price_view['price'].iloc[-1]:,.0f}")
         with p2:
-            hours_text = f"{prediction_hours}時間後" if prediction_hours < 48 else f"{prediction_hours//24}日後"
+            if prediction_hours < 48:
+                hours_text = get_text("pred_hours_later", h=prediction_hours)
+            else:
+                hours_text = get_text("pred_days_later", d=prediction_hours // 24)
             st.metric(
-                f"予測価格 ({hours_text})",
+                get_text("pred_future", t=hours_text),
                 f"¥{prediction_df['price'].iloc[-1]:,.0f}",
                 delta=f"{predicted_change:+.2f}%"
             )
         with p3:
-            direction = "上昇" if predicted_change > 0 else "下降"
-            st.metric("トレンド方向", direction, delta=f"{abs(predicted_change):.2f}%")
+            direction = get_text("trend_up") if predicted_change > 0 else get_text("trend_down")
+            st.metric(get_text("trend_direction"), direction, delta=f"{abs(predicted_change):.2f}%")
 
     # ── Score Timeline ──
-    st.subheader("スコア推移")
+    st.subheader(get_text("score_timeline"))
     score_chart(df_snap_view)
 
     st.markdown("---")
@@ -1321,39 +1553,39 @@ def main():
     left, right = st.columns([2, 1])
 
     with left:
-        st.subheader("テクニカル指標")
+        st.subheader(get_text("indicators_title"))
         ind = result["indicators"]
 
         m1, m2, m3, m4 = st.columns(4)
         rsi_val = ind.get("rsi", 50)
         with m1:
-            rsi_tag = "🔴 売られすぎ" if rsi_val < RSI_OVERSOLD else (
-                "🟡 回復圏" if rsi_val < RSI_NEUTRAL else "⚪ 中立")
+            rsi_tag = get_text("rsi_oversold_tag") if rsi_val < RSI_OVERSOLD else (
+                get_text("rsi_recovery_tag") if rsi_val < RSI_NEUTRAL else get_text("rsi_neutral_tag"))
             st.metric("RSI", f"{rsi_val:.1f}", delta=rsi_tag)
 
         bb_info = ind.get("bb", {})
         with m2:
             bw = bb_info.get("width", 0) * 100
-            bb_tag = "🟢 収縮" if bb_info.get("squeeze") else "⚪ 通常"
-            st.metric("BB幅", f"{bw:.2f}%", delta=bb_tag)
+            bb_tag = get_text("bb_squeeze_tag") if bb_info.get("squeeze") else get_text("bb_normal_tag")
+            st.metric(get_text("metric_bb_width"), f"{bw:.2f}%", delta=bb_tag)
 
         macd_info = ind.get("macd", {})
         with m3:
             mh = macd_info.get("histogram", 0)
-            macd_tag = "🟢 ブル" if mh > 0 else "🔴 ベア"
+            macd_tag = get_text("macd_bull_tag") if mh > 0 else get_text("macd_bear_tag")
             st.metric("MACD", f"{mh:,.0f}", delta=macd_tag)
 
         vol_info = ind.get("volume", {})
         with m4:
             vr = vol_info.get("ratio", 1.0)
-            vol_tag = "🟢 増加" if vr >= VOLUME_INCREASE else "⚪ 通常"
-            st.metric("出来高比", f"{vr:.2f}x", delta=vol_tag)
+            vol_tag = get_text("vol_increase_tag") if vr >= VOLUME_INCREASE else get_text("vol_normal_tag")
+            st.metric(get_text("metric_vol_ratio"), f"{vr:.2f}x", delta=vol_tag)
 
         # Sub-charts
         indicator_charts(df_snap_view)
 
     with right:
-        st.subheader("シグナル一覧")
+        st.subheader(get_text("signals_title"))
         signal_panel(result["signals"], score)
 
     # ── Footer ──
