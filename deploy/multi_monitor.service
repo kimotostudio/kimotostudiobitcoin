@@ -1,0 +1,19 @@
+[Unit]
+Description=Multi Symbol Crypto Collector
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/bitcoin
+Environment=PYTHONUNBUFFERED=1
+Environment=CRYPTO_SYMBOLS=BTCJPY,ETHJPY,SOLJPY,XRPJPY
+Environment=CHECK_INTERVAL=60
+ExecStart=/usr/bin/python3 -u /opt/bitcoin/multi_monitor.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

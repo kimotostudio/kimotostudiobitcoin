@@ -212,6 +212,214 @@ sudo journalctl -u btc-monitor.service -n 50 --no-pager
 sudo systemctl restart btc-monitor.service
 ```
 
+## Multi-Symbol Background Collector
+
+Use `multi_monitor.py` to collect multiple crypto pairs in the background
+while keeping the Streamlit UI BTC-focused.
+
+### Logging (Console + Rotating File)
+
+- Console output stays enabled.
+- File log: `output/multi_monitor.log`
+- Rotation: `>10MB` then rotate, keep `5` backups
+  (`output/multi_monitor.log.1` ... `output/multi_monitor.log.5`)
+
+### Local Run
+
+```bash
+# optional
+export CRYPTO_SYMBOLS="BTCJPY,ETHJPY,SOLJPY,XRPJPY"
+export CHECK_INTERVAL=60
+
+python multi_monitor.py
+```
+
+Quick test (runs 3 loops and exits):
+
+```bash
+python multi_monitor.py --symbols "BTCJPY,ETHJPY" --interval 1 --loops 3
+```
+
+### Windows (Task Scheduler)
+
+1. Create `scripts/run_multi_monitor.bat`:
+
+```bat
+@echo off
+cd /d C:\path\to\kimotostudiobitcoin
+set CRYPTO_SYMBOLS=BTCJPY,ETHJPY,SOLJPY,XRPJPY
+set CHECK_INTERVAL=60
+.venv\Scripts\python.exe -u multi_monitor.py
+```
+
+2. Task Scheduler -> Create Task:
+- Trigger: At startup (or schedule you prefer)
+- Action: `cmd.exe`
+- Arguments: `/c C:\path\to\kimotostudiobitcoin\scripts\run_multi_monitor.bat`
+- Start in: `C:\path\to\kimotostudiobitcoin`
+
+### Linux (systemd)
+
+```ini
+[Unit]
+Description=Multi Crypto Collector
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/kimotostudiobitcoin
+EnvironmentFile=/opt/kimotostudiobitcoin/.env
+ExecStart=/opt/kimotostudiobitcoin/.venv/bin/python -u multi_monitor.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Example `.env`:
+
+```bash
+CRYPTO_SYMBOLS=BTCJPY,ETHJPY,SOLJPY,XRPJPY
+CHECK_INTERVAL=60
+# optional remote mirror
+DATABASE_URL=postgresql+psycopg://user:pass@host/db?sslmode=require
+```
+
+### Linux (nohup)
+
+```bash
+CRYPTO_SYMBOLS="BTCJPY,ETHJPY,SOLJPY,XRPJPY" CHECK_INTERVAL=60 \
+nohup python -u multi_monitor.py > multi_monitor.out 2> multi_monitor.err &
+```
+
+### VPS (systemd, recommended for 24/7)
+
+Use the prepared unit file in `deploy/multi_monitor.service`.
+
+1. Copy the service file:
+
+```bash
+sudo cp deploy/multi_monitor.service /etc/systemd/system/multi_monitor.service
+```
+
+2. Open and verify environment-specific values:
+- `User` (for example `ubuntu`)
+- `WorkingDirectory` (for example `/opt/bitcoin`)
+- `ExecStart` (for example `/usr/bin/python3 /opt/bitcoin/multi_monitor.py`)
+- `Environment=CRYPTO_SYMBOLS=BTCJPY,ETHJPY,SOLJPY,XRPJPY`
+- `Environment=CHECK_INTERVAL=60`
+
+3. Enable + start:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now multi_monitor.service
+```
+
+4. Check status/logs:
+
+```bash
+sudo systemctl status multi_monitor.service
+sudo journalctl -u multi_monitor.service -f
+```
+
+5. Typical operations:
+
+```bash
+sudo systemctl restart multi_monitor.service
+sudo systemctl stop multi_monitor.service
+sudo systemctl disable multi_monitor.service
+```
+
+### VPS Log Rotation (optional)
+
+If you also write logs to `/var/log/multi_monitor.log`, install the prepared
+logrotate config:
+
+```bash
+sudo cp deploy/multi_monitor.logrotate /etc/logrotate.d/multi_monitor
+sudo logrotate -d /etc/logrotate.d/multi_monitor
+sudo logrotate -f /etc/logrotate.d/multi_monitor
+```
+
+This policy rotates weekly, keeps 8 compressed archives, and uses `copytruncate`.
+
+### Daily Status Command (`scripts/db_status.py`)
+
+Run this once per day to verify per-symbol row counts, timestamp ranges, and
+latest rows for `price_history_multi` and `feature_history`:
+
+```bash
+python scripts/db_status.py --db btc_history.db
+```
+
+Quick daily check with service state:
+
+```bash
+sudo systemctl status multi_monitor.service --no-pager
+python scripts/db_status.py --db btc_history.db
+```
+
+Optional: save a dated daily snapshot log:
+
+```bash
+python scripts/db_status.py --db btc_history.db > output/db_status_$(date +%F).log
+```
+
+## Research Analysis Pipeline (Multi-Asset)
+
+Use `analysis/run_research_analysis.py` to produce research-style summary
+artifacts from:
+- `price_history_multi`
+- `feature_history`
+
+Default symbols:
+- `BTCJPY,ETHJPY,SOLJPY,XRPJPY`
+
+### Run
+
+Default run:
+
+```bash
+python analysis/run_research_analysis.py
+```
+
+Custom DB/output/symbols:
+
+```bash
+python analysis/run_research_analysis.py \
+  --db btc_history.db \
+  --output-dir analysis/output \
+  --symbols BTCJPY,ETHJPY,SOLJPY,XRPJPY
+```
+
+### Output Files (`analysis/output/`)
+
+- `summary_stats.csv`
+  - Per-symbol summary: row counts, start/end period, drawdown stats,
+    return distribution stats (`ret_1m/5m/1h`), volatility means, and
+    bottom-signal 1h performance summary.
+- `bottom_signal_forward_returns.csv`
+  - Per symbol and horizon (`5m`, `15m`, `1h`, `6h`, `24h`): signal count,
+    valid samples, mean/median/std forward return, hit rate, sharpe-like.
+- `correlation_matrix.csv`
+  - Cross-asset correlation matrix of 1-minute returns.
+- `lead_lag_results.csv`
+  - Bottom-signal co-occurrence and BTC lead-lag results against ETH/SOL/XRP.
+  - Includes `analysis` (`cooccurrence`/`lead_lag`), `lag_minutes`,
+    `n_hits`, `hit_rate`, and co-occurrence ratios.
+
+### Output Plots (`analysis/output/`)
+
+- `return_hist_1m.png`
+- `return_hist_5m.png`
+- `return_hist_1h.png`
+- `bottom_signal_strategy_cum_pnl.png`
+- `correlation_heatmap.png`
+
 ---
 
 ## Contributing
