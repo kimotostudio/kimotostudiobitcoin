@@ -28,10 +28,7 @@ QUERY_LIMIT = 50000
 DEFAULT_VIEW_DAYS = 30
 TIMEFRAME_OPTIONS = {"24h": 1, "1w": 7, "2w": 14, "1m": 30}
 PREDICTION_HOURS = {"24h": 24, "1w": 72, "2w": 336, "1m": 168}
-FEATURE_LOG_PATH = os.getenv(
-    "FEATURE_LOG_PATH",
-    os.path.join("output", "btc_price_features_log.csv"),
-)
+FEATURE_LOG_PATH = str(Path("output") / "btc_price_features_log.csv")
 
 # Import core indicator functions from btc_monitor (same repo)
 try:
@@ -1941,7 +1938,18 @@ def main():
     if len(free_energy_features_view) > 0:
         free_energy_features_view = free_energy_features_view[free_energy_features_view.index >= cutoff_dt]
     df_price_features_csv = build_price_feature_csv_df(df_price_full, free_energy_features_full)
-    persist_price_feature_csv(df_price_features_csv)
+    feature_log_stats = persist_price_feature_csv(df_price_features_csv)
+    last_feature_log_time = None
+    if len(df_price_features_csv) > 0:
+        last_feature_log_time = df_price_features_csv.index.max()
+    if pd.notna(last_feature_log_time):
+        last_feature_log_time_str = pd.Timestamp(last_feature_log_time).strftime("%Y-%m-%d %H:%M:%S")
+    else:
+        last_feature_log_time_str = "N/A"
+    st.caption(
+        f"last_feature_log_time: {last_feature_log_time_str} UTC | "
+        f"{Path(feature_log_stats.get('path', FEATURE_LOG_PATH))}"
+    )
 
     prediction_df = predict_price_trend(df_price_view, prediction_hours)
     prediction_warning = prediction_df.attrs.get("prediction_warning") if len(prediction_df) > 0 else None
