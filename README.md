@@ -1,6 +1,6 @@
 # Bitcoin Bottom Detector
 
-Experimental real-time BTC/JPY monitoring, bottom-signal detection, and research tooling for crypto market observation.
+Experimental BTC/JPY monitoring, bottom-signal detection, and research tooling for crypto market observation.
 
 [![Live Demo](https://img.shields.io/badge/Live-Demo-10b981?style=for-the-badge&logo=streamlit)](https://kimotostudiobitcoin-5hsuskqwxuu4affhtp2eg9.streamlit.app/)
 [![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)](LICENSE)
@@ -12,6 +12,10 @@ Bitcoin Bottom Detector is a Streamlit + Python system for monitoring BTC/JPY in
 The repository combines a live BTC/JPY collector, a Streamlit dashboard, a multi-symbol background collector, and a set of research/backtesting utilities for evaluating the behavior of the signal logic over time.
 
 It does not claim to predict market bottoms reliably or guarantee trading performance. The forecasting and signal layers are best understood as experimental monitoring tools backed by transparent heuristics, persisted logs, and research scripts.
+
+## Status
+
+This repository is a work in progress. The core monitoring, alerting, storage, and research flows are implemented, but the public presentation is still lightweight and does not try to present the project as a polished product.
 
 ## Why This Project Exists
 
@@ -29,18 +33,6 @@ Manual chart watching is noisy, hard to repeat, and difficult to audit after the
 - Multi-symbol background collection for BTCJPY, ETHJPY, SOLJPY, and XRPJPY
 - Research utilities for historical backfill, event backtesting, cross-asset analysis, and criticality-style diagnostics
 - Japanese / English UI support
-
-## Screenshots
-
-The dashboard screenshots referenced in earlier README drafts are not currently checked into `docs/`. To avoid broken embeds, this README only shows image assets that are already committed to the repository.
-
-Research output example: cumulative curve from bottom-signal event analysis.
-
-![Bottom-signal event analysis](analysis/output_default/bottom_signal_strategy_cum_pnl.png)
-
-Research output example: cross-asset correlation heatmap from the multi-symbol pipeline.
-
-![Cross-asset correlation heatmap](analysis/output_default/correlation_heatmap.png)
 
 ## System Architecture
 
@@ -65,7 +57,7 @@ bitFlyer / CoinGecko / Binance backfill
 
 ## Quick Start
 
-### Option 1: Live app
+### Option 1: Public app
 
 Use the public Streamlit app:
 
