@@ -21,6 +21,12 @@ This repository is a work in progress. The core monitoring, alerting, storage, a
 
 Manual chart watching is noisy, hard to repeat, and difficult to audit after the fact. This project exists to turn a bottom-oriented monitoring workflow into explicit code: collect data continuously, score accumulation-like conditions, store the intermediate features, and review alerts and historical results with a reproducible toolchain.
 
+## Research Motivation
+
+A broader experimental goal behind this repository is to explore whether physics-inspired analogs of Gibbs free energy, entropy, and phase-transition detection can help characterize collective market behavior.
+
+In the current public codebase, that motivation appears mainly through free-energy-like features, criticality-style diagnostics, Hurst and spectrum analysis, and regime-screening experiments on crypto time series. Entropy-oriented ideas are part of the research direction, but they should be read as an experimental objective rather than a finished capability in the current implementation.
+
 ## Key Features
 
 - Real-time BTC/JPY monitoring on a 60-second loop
