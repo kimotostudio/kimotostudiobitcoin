@@ -1,466 +1,238 @@
 # Bitcoin Bottom Detector
 
-**Real-time Bitcoin bottom detection system using 6 professional technical indicators.**
-
-Catch Bitcoin bottoms without watching charts 24/7. Get automatic Discord notifications when accumulation zones are detected.
+Experimental real-time BTC/JPY monitoring, bottom-signal detection, and research tooling for crypto market observation.
 
 [![Live Demo](https://img.shields.io/badge/Live-Demo-10b981?style=for-the-badge&logo=streamlit)](https://kimotostudiobitcoin-5hsuskqwxuu4affhtp2eg9.streamlit.app/)
 [![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)](LICENSE)
-[![Language](https://img.shields.io/badge/Language-Python-yellow?style=for-the-badge&logo=python)](https://python.org)
 
-![Bitcoin Bottom Detector Screenshot](docs/screenshot-main.png)
+## Overview
 
----
+Bitcoin Bottom Detector is a Streamlit + Python system for monitoring BTC/JPY in near real time, scoring accumulation-like conditions from multiple indicators, and sending optional Discord alerts when heuristic thresholds are met.
 
-## Features
+The repository combines a live BTC/JPY collector, a Streamlit dashboard, a multi-symbol background collector, and a set of research/backtesting utilities for evaluating the behavior of the signal logic over time.
 
-### Multi-Indicator Analysis
-- **RSI (Relative Strength Index)** - Oversold detection
-- **Bollinger Bands** - Volatility squeeze detection
-- **MACD** - Trend reversal signals
-- **Volume Analysis** - Accumulation detection
-- **Price Stability** - Consolidation zones
-- **Composite Scoring** - Weighted signal aggregation (0-100)
+It does not claim to predict market bottoms reliably or guarantee trading performance. The forecasting and signal layers are best understood as experimental monitoring tools backed by transparent heuristics, persisted logs, and research scripts.
 
-### Smart Notifications
-- **Discord Integration** - Automatic alerts to your server
-- **Customizable Thresholds** - Set your own signal sensitivity
-- **Anti-spam Protection** - Max 1 notification per hour
-- **Rich Embeds** - Beautiful, informative alerts
+## Why This Project Exists
 
-### Advanced Visualization
-- **Multi-timeframe Charts** - 24h / 1w / 2w / 1m views
-- **Default View** - 1w timeframe on first load
-- **Price Predictions** - Kalman filter forecasting
-- **Confidence Intervals** - 95% prediction interval band (price space)
-- **Free Energy Bottom Signal** - Drift/variance-based bottom markers
-- **Interactive Plotly Charts** - Zoom, pan, hover tooltips
+Manual chart watching is noisy, hard to repeat, and difficult to audit after the fact. This project exists to turn a bottom-oriented monitoring workflow into explicit code: collect data continuously, score accumulation-like conditions, store the intermediate features, and review alerts and historical results with a reproducible toolchain.
 
-### Multi-language Support
-- Japanese (Default)
-- English
+## Key Features
 
-### Professional UI
-- **Dark Theme** - Modern, clean interface
-- **Responsive Layout** - Works on desktop and mobile
-- **Real-time Updates** - Auto-refresh every 60 seconds
-
----
-
-## Live Demo
-
-**[Try it now](https://kimotostudiobitcoin-5hsuskqwxuu4affhtp2eg9.streamlit.app/)** - No signup required
-
----
+- Real-time BTC/JPY monitoring on a 60-second loop
+- Composite 0-100 bottom-signal score built from RSI, Bollinger Band squeeze, MACD behavior, volume expansion, and price stability signals
+- Streamlit + Plotly dashboard with 24h / 1w / 2w / 1m views and 60-second auto-refresh
+- Kalman-filter-based forecast curve with 95% price-space interval bands
+- Free-energy-derived bottom markers and persisted feature logs
+- Optional Discord webhook notifications with validation, retries, cooldown handling, and test-send support
+- PostgreSQL-backed dashboard flow, with SQLite fallback for collector scripts when a remote database is not configured
+- Multi-symbol background collection for BTCJPY, ETHJPY, SOLJPY, and XRPJPY
+- Research utilities for historical backfill, event backtesting, cross-asset analysis, and criticality-style diagnostics
+- Japanese / English UI support
 
 ## Screenshots
 
-<details>
-<summary>Click to expand</summary>
+The dashboard screenshots referenced in earlier README drafts are not currently checked into `docs/`. To avoid broken embeds, this README only shows image assets that are already committed to the repository.
 
-### Main Dashboard
-![Main Dashboard](docs/screenshot-main.png)
+Research output example: cumulative curve from bottom-signal event analysis.
 
-### Discord Notifications
-![Discord Setup](docs/screenshot-discord.png)
+![Bottom-signal event analysis](analysis/output_default/bottom_signal_strategy_cum_pnl.png)
 
-### Price Predictions
-![Predictions](docs/screenshot-prediction.png)
+Research output example: cross-asset correlation heatmap from the multi-symbol pipeline.
 
-### Technical Indicators
-![Indicators](docs/screenshot-indicators.png)
+![Cross-asset correlation heatmap](analysis/output_default/correlation_heatmap.png)
 
-</details>
+## System Architecture
 
----
+### Live monitoring flow
 
-## Tech Stack
+```text
+bitFlyer / Coincheck
+  -> btc_monitor.py
+  -> price_history + btc_history
+  -> app.py
+  -> optional Discord webhook alert
+```
 
-| Category | Technology |
-|----------|-----------|
-| Frontend | [Streamlit](https://streamlit.io), [Plotly](https://plotly.com), Custom CSS |
-| Backend | Python 3.10+, [pandas](https://pandas.pydata.org), [NumPy](https://numpy.org) |
-| ML | Custom Kalman filter (NumPy) |
-| Database | [PostgreSQL](https://postgresql.org) ([Neon](https://neon.tech) serverless) |
-| Data | [bitFlyer API](https://bitflyer.com) (real-time BTC/JPY) |
-| Hosting | [Streamlit Cloud](https://streamlit.io/cloud), VPS (monitoring daemon) |
+### Multi-symbol and historical research flow
 
----
+```text
+bitFlyer / CoinGecko / Binance backfill
+  -> multi_monitor.py or scripts/binance_backfill.py
+  -> price_history_multi + feature_history
+  -> analysis/*, critical_analysis/*, backtests, and exported plots
+```
 
 ## Quick Start
 
-### Option 1: Use the Live App (Recommended)
+### Option 1: Live app
 
-1. Visit [the live demo](https://kimotostudiobitcoin-5hsuskqwxuu4affhtp2eg9.streamlit.app/)
-2. Set up Discord notifications (optional)
-3. Start monitoring!
+Use the public Streamlit app:
 
-### Option 2: Run Locally
+- https://kimotostudiobitcoin-5hsuskqwxuu4affhtp2eg9.streamlit.app/
+
+### Option 2: Run locally
 
 ```bash
-# Clone
 git clone https://github.com/kimotostudio/kimotostudiobitcoin.git
 cd kimotostudiobitcoin
-
-# Install
+python -m venv .venv
+# Windows: .venv\Scripts\activate
+# macOS / Linux: source .venv/bin/activate
 pip install -r requirements.txt
+```
 
-# Set database URL
+Run the collector locally with SQLite fallback:
+
+```bash
+python btc_monitor.py
+```
+
+Run the Streamlit app with a PostgreSQL connection:
+
+```bash
 export DATABASE_URL="postgresql+psycopg://user:pass@host/db?sslmode=require"
-
-# Run
 streamlit run app.py
 ```
 
-### Option 3: Deploy Your Own
+Notes:
 
-1. Fork this repository
-2. Connect to [Streamlit Cloud](https://share.streamlit.io)
-3. Add `DATABASE_URL` to Secrets
-4. Deploy
+- `btc_monitor.py` can write to local `btc_history.db` if `DATABASE_URL` is not set.
+- `app.py` expects `DATABASE_URL` via environment variable or Streamlit Secrets; without it, the dashboard cannot load historical tables.
+- `DISCORD_WEBHOOK_URL` is optional and only needed for automated alert delivery from `btc_monitor.py`.
 
----
-
-## How It Works
-
-### Signal Detection
-
-```python
-# Composite scoring system (0-100 points)
-WEIGHTS = {
-    'rsi_oversold': 25,       # RSI < 35
-    'rsi_recovery': 15,       # RSI 35-50 (recovery)
-    'bb_squeeze': 20,         # BB width < 2%
-    'macd_bullish': 20,       # MACD bullish cross
-    'volume_increase': 10,    # Volume > 1.2x average
-    'price_stability': 10,    # Price range < 2%
-}
-
-SIGNAL_THRESHOLD = 60  # Alert at 60+ points
-```
-
-### Data Pipeline
-
-```
-bitFlyer API -> VPS Monitor (60s) -> PostgreSQL -> Streamlit App -> Discord
-```
-
-### Prediction Model
-
-- **Algorithm:** Kalman filter on log-returns (local linear trend)
-- **Forecast:** Up to 7 days ahead
-- **Confidence:** 95% prediction interval band in JPY price units
-- **Bottom Signal:** Free energy local minima + drift sign flip
-- **Update:** Every 60 seconds
-
----
-
-## Discord Setup
-
-1. Open your Discord server settings
-2. Go to **Integrations** > **Webhooks** > **New Webhook**
-3. Copy the Webhook URL
-4. Paste it in the app and set your threshold
-5. Click **Test Notification** to verify
-
----
-
-## Configuration
-
-### Environment Variables
+### Option 3: Multi-symbol collector
 
 ```bash
-DATABASE_URL=postgresql+psycopg://user:pass@host.neon.tech/db?sslmode=require
-```
-
-### Streamlit Secrets
-
-```toml
-DATABASE_URL = "postgresql+psycopg://user:pass@host.neon.tech/db?sslmode=require"
-```
-
----
-
-## VPS Deployment
-
-### systemd Service
-
-```ini
-[Unit]
-Description=Bitcoin Bottom Detector Monitor
-After=network.target
-
-[Service]
-Type=simple
-WorkingDirectory=/opt/kimotostudiobitcoin
-EnvironmentFile=/opt/kimotostudiobitcoin/.env
-ExecStart=/opt/kimotostudiobitcoin/.venv/bin/python -u btc_monitor.py
-Restart=always
-RestartSec=5
-StandardOutput=journal
-StandardError=journal
-
-[Install]
-WantedBy=multi-user.target
-```
-
-### Commands
-
-```bash
-sudo systemctl status btc-monitor.service
-sudo journalctl -u btc-monitor.service -n 50 --no-pager
-sudo systemctl restart btc-monitor.service
-```
-
-## Multi-Symbol Background Collector
-
-Use `multi_monitor.py` to collect multiple crypto pairs in the background
-while keeping the Streamlit UI BTC-focused.
-
-### Logging (Console + Rotating File)
-
-- Console output stays enabled.
-- File log: `output/multi_monitor.log`
-- Rotation: `>10MB` then rotate, keep `5` backups
-  (`output/multi_monitor.log.1` ... `output/multi_monitor.log.5`)
-
-### Local Run
-
-```bash
-# optional
 export CRYPTO_SYMBOLS="BTCJPY,ETHJPY,SOLJPY,XRPJPY"
 export CHECK_INTERVAL=60
-
 python multi_monitor.py
 ```
 
-Quick test (runs 3 loops and exits):
+Quick test:
 
 ```bash
 python multi_monitor.py --symbols "BTCJPY,ETHJPY" --interval 1 --loops 3
 ```
 
-### Windows (Task Scheduler)
+## Tech Stack
 
-1. Create `scripts/run_multi_monitor.bat`:
+| Category | Technology |
+| --- | --- |
+| UI | Streamlit, Plotly, custom CSS |
+| Core language | Python 3.10+ |
+| Data stack | pandas, NumPy, SQLAlchemy |
+| Forecasting | Custom Kalman filter on log returns |
+| Storage | PostgreSQL (for dashboard deployments), SQLite (local collector workflows) |
+| Live market data | bitFlyer API, Coincheck fallback, CoinGecko fallback for some symbols |
+| Ops | systemd, logrotate, rotating file logs |
+| Research | matplotlib, SciPy, statsmodels |
 
-```bat
-@echo off
-cd /d C:\path\to\kimotostudiobitcoin
-set CRYPTO_SYMBOLS=BTCJPY,ETHJPY,SOLJPY,XRPJPY
-set CHECK_INTERVAL=60
-.venv\Scripts\python.exe -u multi_monitor.py
+## Project Structure
+
+```text
+app.py                         Streamlit dashboard and Discord UI
+btc_monitor.py                 BTC/JPY collector, scoring logic, and alert daemon
+multi_monitor.py               Multi-symbol collector and feature logger
+src/kalman.py                  Kalman forecasting, interval bands, free-energy features
+src/backtest.py                Walk-forward forecast backtest
+src/backtest_bottom_signal.py  Event-based bottom-signal backtest
+analysis/                      Historical analysis and research pipelines
+critical_analysis/             Statistical diagnostics and criticality-style analysis
+deploy/                        Example systemd and logrotate files
+scripts/                       Backfill, health checks, DB status, and calibration helpers
+tests/                         Pytest coverage for Kalman, calibration, persistence, and backtests
+output/                        Runtime logs and generated artifacts
 ```
 
-2. Task Scheduler -> Create Task:
-- Trigger: At startup (or schedule you prefer)
-- Action: `cmd.exe`
-- Arguments: `/c C:\path\to\kimotostudiobitcoin\scripts\run_multi_monitor.bat`
-- Start in: `C:\path\to\kimotostudiobitcoin`
+## Monitoring and Notifications
 
-### Linux (systemd)
+`btc_monitor.py` is the main live collector. It polls BTC/JPY data every 60 seconds, computes indicator values, persists price and snapshot tables, and can send Discord alerts when the composite score passes the configured threshold.
 
-```ini
-[Unit]
-Description=Multi Crypto Collector
-After=network.target
+Operational behavior already implemented in the repository includes:
 
-[Service]
-Type=simple
-WorkingDirectory=/opt/kimotostudiobitcoin
-EnvironmentFile=/opt/kimotostudiobitcoin/.env
-ExecStart=/opt/kimotostudiobitcoin/.venv/bin/python -u multi_monitor.py
-Restart=always
-RestartSec=5
-StandardOutput=journal
-StandardError=journal
+- a default signal threshold of 60/100
+- a 1-hour alert cooldown in the collector
+- Discord webhook validation and retry/backoff handling
+- persisted `price_history` and `btc_history` tables for later review
 
-[Install]
-WantedBy=multi-user.target
-```
+`multi_monitor.py` extends the system for multi-symbol collection while keeping the main dashboard BTC-focused. It logs to console and `output/multi_monitor.log`, rotates files above 10 MB, and keeps five backups.
 
-Example `.env`:
+Useful operational commands:
 
 ```bash
-CRYPTO_SYMBOLS=BTCJPY,ETHJPY,SOLJPY,XRPJPY
-CHECK_INTERVAL=60
-# optional remote mirror
-DATABASE_URL=postgresql+psycopg://user:pass@host/db?sslmode=require
-```
-
-### Linux (nohup)
-
-```bash
-CRYPTO_SYMBOLS="BTCJPY,ETHJPY,SOLJPY,XRPJPY" CHECK_INTERVAL=60 \
-nohup python -u multi_monitor.py > multi_monitor.out 2> multi_monitor.err &
-```
-
-### VPS (systemd, recommended for 24/7)
-
-Use the prepared unit file in `deploy/multi_monitor.service`.
-
-1. Copy the service file:
-
-```bash
-sudo cp deploy/multi_monitor.service /etc/systemd/system/multi_monitor.service
-```
-
-2. Open and verify environment-specific values:
-- `User` (for example `ubuntu`)
-- `WorkingDirectory` (for example `/opt/bitcoin`)
-- `ExecStart` (for example `/usr/bin/python3 /opt/bitcoin/multi_monitor.py`)
-- `Environment=CRYPTO_SYMBOLS=BTCJPY,ETHJPY,SOLJPY,XRPJPY`
-- `Environment=CHECK_INTERVAL=60`
-
-3. Enable + start:
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable --now multi_monitor.service
-```
-
-4. Check status/logs:
-
-```bash
-sudo systemctl status multi_monitor.service
+python scripts/db_status.py --db btc_history.db
+python scripts/health_check_multi.py --db btc_history.db
+sudo systemctl status multi_monitor.service --no-pager
 sudo journalctl -u multi_monitor.service -f
 ```
 
-5. Typical operations:
+## Forecasting and Analysis
 
-```bash
-sudo systemctl restart multi_monitor.service
-sudo systemctl stop multi_monitor.service
-sudo systemctl disable multi_monitor.service
-```
+The forecasting layer uses a custom Kalman filter on log returns. In the UI, that is exposed as a short-horizon forecast curve and 95% interval band. In the research code, the same family of features is reused for bottom-signal logging, event studies, and historical evaluation.
 
-### VPS Log Rotation (optional)
+Important framing: these outputs are experimental diagnostics. They are useful for monitoring and hypothesis testing, but they are not a guarantee of price direction or trade profitability.
 
-If you also write logs to `/var/log/multi_monitor.log`, install the prepared
-logrotate config:
+Key analysis entry points:
 
-```bash
-sudo cp deploy/multi_monitor.logrotate /etc/logrotate.d/multi_monitor
-sudo logrotate -d /etc/logrotate.d/multi_monitor
-sudo logrotate -f /etc/logrotate.d/multi_monitor
-```
+- `analysis/run_research_analysis.py` for summary statistics, forward-return tables, and correlation plots from `price_history_multi` and `feature_history`
+- `scripts/binance_backfill.py` for historical Binance backfill into the same research tables
+- `src/backtest_bottom_signal.py` for leakage-aware event studies on persisted bottom-signal logs
+- `src/backtest.py` for walk-forward Kalman-signal backtests
+- `critical_analysis/main.py` for volatility, autocorrelation, spectrum, Hurst, and other criticality-style diagnostics
+- `analysis/run_full_historical_pipeline.py` for end-to-end historical feature generation and report output
 
-This policy rotates weekly, keeps 8 compressed archives, and uses `copytruncate`.
-
-### Daily Status Command (`scripts/db_status.py`)
-
-Run this once per day to verify per-symbol row counts, timestamp ranges, and
-latest rows for `price_history_multi` and `feature_history`:
-
-```bash
-python scripts/db_status.py --db btc_history.db
-```
-
-Quick daily check with service state:
-
-```bash
-sudo systemctl status multi_monitor.service --no-pager
-python scripts/db_status.py --db btc_history.db
-```
-
-Optional: save a dated daily snapshot log:
-
-```bash
-python scripts/db_status.py --db btc_history.db > output/db_status_$(date +%F).log
-```
-
-## Research Analysis Pipeline (Multi-Asset)
-
-Use `analysis/run_research_analysis.py` to produce research-style summary
-artifacts from:
-- `price_history_multi`
-- `feature_history`
-
-Default symbols:
-- `BTCJPY,ETHJPY,SOLJPY,XRPJPY`
-
-### Run
-
-Default run:
+Example research commands:
 
 ```bash
 python analysis/run_research_analysis.py
+python scripts/binance_backfill.py --symbols "BTCUSDT,ETHUSDT" --interval 1m --start 2021-01-01 --end 2021-06-01
+python critical_analysis/main.py --source sqlite --sqlite-path btc_history.db --table price_history_multi --symbol BTCJPY --preferred-resolution 1min --output-dir critical_analysis/output
 ```
 
-Custom DB/output/symbols:
+## Deployment Notes
+
+For a 24/7 setup, the repository already includes deployment-oriented assets:
+
+- `deploy/multi_monitor.service` for systemd-based background collection
+- `deploy/multi_monitor.logrotate` for optional log rotation under `/var/log`
+- `scripts/db_status.py` for quick daily table and timestamp checks
+
+Typical systemd flow:
 
 ```bash
-python analysis/run_research_analysis.py \
-  --db btc_history.db \
-  --output-dir analysis/output \
-  --symbols BTCJPY,ETHJPY,SOLJPY,XRPJPY
+sudo cp deploy/multi_monitor.service /etc/systemd/system/multi_monitor.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now multi_monitor.service
+sudo systemctl status multi_monitor.service
 ```
 
-### Output Files (`analysis/output/`)
+## Testing
 
-- `summary_stats.csv`
-  - Per-symbol summary: row counts, start/end period, drawdown stats,
-    return distribution stats (`ret_1m/5m/1h`), volatility means, and
-    bottom-signal 1h performance summary.
-- `bottom_signal_forward_returns.csv`
-  - Per symbol and horizon (`5m`, `15m`, `1h`, `6h`, `24h`): signal count,
-    valid samples, mean/median/std forward return, hit rate, sharpe-like.
-- `correlation_matrix.csv`
-  - Cross-asset correlation matrix of 1-minute returns.
-- `lead_lag_results.csv`
-  - Bottom-signal co-occurrence and BTC lead-lag results against ETH/SOL/XRP.
-  - Includes `analysis` (`cooccurrence`/`lead_lag`), `lag_minutes`,
-    `n_hits`, `hit_rate`, and co-occurrence ratios.
+Run the current automated tests from the repository root:
 
-### Output Plots (`analysis/output/`)
+```bash
+python -m pytest tests -q
+```
 
-- `return_hist_1m.png`
-- `return_hist_5m.png`
-- `return_hist_1h.png`
-- `bottom_signal_strategy_cum_pnl.png`
-- `correlation_heatmap.png`
+The test suite covers Kalman behavior, interval calibration, feature persistence, and backtesting helpers.
 
----
+## Limitations and Disclaimer
+
+- This is a heuristic signal-detection and monitoring system, not a validated market-timing engine.
+- The composite score and bottom markers depend on indicator thresholds and recent market structure; they can be noisy or wrong.
+- The Kalman forecast is a compact statistical model on log returns, not a full market model.
+- Live data quality depends on external APIs and the freshness of the configured database.
+- Historical analysis outputs are useful for research support, not proof of future performance.
+
+This tool is for informational purposes only. It is not financial advice.
+
+Past performance does not guarantee future results. Cryptocurrency markets are volatile, and any investment or trading decision is the user's responsibility.
 
 ## Contributing
 
-Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
-
-```bash
-# Dev setup
-python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-streamlit run app.py
-```
-
----
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
-
----
-
-## Disclaimer
-
-**This tool is for informational purposes only. Not financial advice.**
-
-- Past performance does not guarantee future results
-- Cryptocurrency investments carry risk
-- Always do your own research (DYOR)
-- Only invest what you can afford to lose
-
----
-
-## Support
-
-If you find this useful:
-
-- Star this repository
-- Share with others
-- [Report issues](https://github.com/kimotostudio/kimotostudiobitcoin/issues)
-
----
-
-Built by [KIMOTO STUDIO](https://github.com/kimotostudio)
+MIT License. See [LICENSE](LICENSE).
